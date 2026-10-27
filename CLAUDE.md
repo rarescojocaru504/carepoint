@@ -55,5 +55,11 @@ Your goal is to build a scalable, production-ready system utilizing FastAPI, Pos
    - Write `pytest` fixtures for database state.
    - Ensure the Redis locking mechanism is heavily tested for race conditions.
 
+5. **Branches, PRs & CI:**
+   - One branch per feature, cut from the latest `main`, named `<type>/<short-kebab-name>`: `feature/` (new functionality), `fix/` (bug fixes), `chore/` (tooling, CI, deps), `docs/` (docs only). E.g. `feature/redis-reservation-lock`.
+   - Commit and open PRs autonomously; one logical change per PR.
+   - CI (`.github/workflows/ci.yml`) auto-merges a PR into `main` once lint, tests and the Docker smoke test pass. Open a PR as a **draft** or label it `do-not-merge` to hold it.
+   - Before pushing, run locally from `backend/`: `ruff check .`, `ruff format --check .`, `mypy app alembic/env.py tests`, `pytest`.
+
 ## 📝 Memory & Documentation
 Whenever you make a significant architectural decision (e.g., how the Redis lock is structured, how the IoT machine authenticates), document it immediately in `docs/architecture-decisions.md`.
