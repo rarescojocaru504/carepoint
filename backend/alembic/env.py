@@ -2,12 +2,11 @@ import asyncio
 from logging.config import fileConfig
 from typing import Literal
 
+from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.schema import SchemaItem
-
-from alembic import context
 
 import app.models  # noqa: F401  (registers every model on Base.metadata)
 from app.core.config import get_settings

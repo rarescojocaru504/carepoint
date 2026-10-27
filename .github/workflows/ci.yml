@@ -1,0 +1,139 @@
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, unlabeled]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  lint:
+    name: Lint & type check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      - name: ruff check
+        run: ruff check --output-format=github .
+      - name: ruff format
+        run: ruff format --check .
+      - name: mypy (strict)
+        run: mypy app alembic/env.py tests
+
+  test:
+    name: Tests (PostGIS + Redis)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: carepoint
+          POSTGRES_PASSWORD: carepoint
+          POSTGRES_DB: carepoint
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U carepoint -d carepoint"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://carepoint:carepoint@localhost:5432/carepoint
+      TEST_DATABASE_URL: postgresql+asyncpg://carepoint:carepoint@localhost:5432/carepoint_test
+      REDIS_URL: redis://localhost:6379/0
+      REQUIRE_SERVICES: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+      - run: pip install -r requirements.txt
+      - name: Create test database
+        env:
+          PGPASSWORD: carepoint
+        run: psql -h localhost -U carepoint -d carepoint -c "CREATE DATABASE carepoint_test"
+      - name: Apply migrations
+        run: alembic upgrade head
+      - name: pytest
+        run: pytest -v
+
+  docker:
+    name: Docker Compose smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and start stack (waits for all healthchecks, incl. backend /ready)
+        run: docker compose up --build --detach --wait --wait-timeout 180
+      - name: Probe endpoints
+        run: |
+          curl --fail --silent --show-error http://localhost:8000/health
+          echo
+          curl --fail --silent --show-error http://localhost:8000/ready
+          echo
+      - name: pytest inside backend container
+        run: docker compose exec -T -e REQUIRE_SERVICES=1 backend pytest -p no:cacheprovider -q
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Tear down
+        if: always()
+        run: docker compose down --volumes
+
+  automerge:
+    name: Auto-merge
+    needs: [lint, test, docker]
+    # Same-repo PRs only (never forks), not drafts, and not labelled do-not-merge.
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      !github.event.pull_request.draft &&
+      !contains(github.event.pull_request.labels.*.name, 'do-not-merge')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Merge PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        # --match-head-commit: refuse to merge if new commits landed after this CI run started.
+        run: >-
+          gh pr merge "$PR_NUMBER"
+          --repo "$GITHUB_REPOSITORY"
+          --merge
+          --delete-branch
+          --match-head-commit "$HEAD_SHA"

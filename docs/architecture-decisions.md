@@ -29,3 +29,18 @@
 - Unit tests replace `get_db`/`get_redis` through `app.dependency_overrides` and need no running services.
 - Tests marked `@pytest.mark.integration` need real PostgreSQL/PostGIS and Redis. They **skip automatically** when those aren't reachable. Run only these with `pytest -m integration`, or skip them with `-m "not integration"`.
 - Migration tests use a disposable `<POSTGRES_DB>_test` database (`TEST_DATABASE_URL`). The Postgres container creates it on first start (`infra/postgres/init/`).
+
+## ADR-005: CI pipeline and auto-merge (2026-10-27)
+
+- `.github/workflows/ci.yml` runs on every PR and on pushes to `main`. It has three jobs:
+  - **lint**: `ruff check`, `ruff format --check` and `mypy --strict` (configured in `backend/pyproject.toml`).
+  - **test**: pytest against PostGIS and Redis service containers, with migrations applied first.
+  - **docker**: `docker compose up --build --wait`, which blocks until every healthcheck passes, including the backend's `/ready`. It then curls the probes and runs pytest inside the backend container.
+- CI sets `REQUIRE_SERVICES=1`, which makes integration tests **fail** instead of skip when a service is unreachable. A broken service container can't produce a green run.
+- **Auto-merge:** When all three jobs pass, the `automerge` job merges the PR with a merge commit and deletes the head branch, using the workflow's `GITHUB_TOKEN`. Safeguards:
+  - Pull requests from forks, draft PRs and PRs labelled `do-not-merge` are never merged.
+  - `--match-head-commit` stops a merge if new commits arrived after the run started.
+  - A newer push cancels the older run (concurrency group).
+  - Removing the `do-not-merge` label or marking a draft ready reruns CI, which can then merge.
+- Known limitation: a merge made with `GITHUB_TOKEN` does not trigger new workflow runs, so CI does not run again on `main` after an auto-merge. The merged code already passed CI on the PR.
+- Branches are named `<type>/<short-kebab-name>` (see `CLAUDE.md`).

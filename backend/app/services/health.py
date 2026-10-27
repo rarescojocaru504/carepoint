@@ -38,9 +38,7 @@ async def check_readiness(session: AsyncSession, redis: Redis) -> ReadinessRespo
     Failure details are logged, never returned, so the public endpoint does not
     leak hostnames or driver errors.
     """
-    database, redis_status = await asyncio.gather(
-        check_database(session), check_redis(redis)
-    )
+    database, redis_status = await asyncio.gather(check_database(session), check_redis(redis))
     checks = ReadinessChecks(database=database, redis=redis_status)
     healthy = all(status is ProbeStatus.OK for status in (database, redis_status))
     return ReadinessResponse(
