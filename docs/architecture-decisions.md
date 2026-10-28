@@ -97,3 +97,35 @@
   - the command refuses to run with `ENVIRONMENT=production`;
   - passwords come from the `SEED_ADMIN_PASSWORD`, `SEED_OPERATOR_PASSWORD` and `SEED_CUSTOMER_PASSWORD` environment variables, falling back to documented development defaults;
   - passwords are hashed with argon2id (`app/core/security.py`).
+
+## ADR-009: User authentication, roles and rate limiting (2026-10-28)
+
+- **Passwords:** argon2id (`argon2-cffi`, RFC 9106 low-memory profile: 64 MiB, t=3, p=4). Hashing runs in a thread pool so it never blocks the event loop. Hashes are upgraded on login when the parameters change.
+- **Login gives nothing away.** An unknown email, a wrong password and a disabled account all return the same 401 body. Unknown emails are checked against a dummy hash, so they take the same time as a real check. Emails are case-insensitive (lowercased everywhere).
+- **Sign-up can't grant privileges.** `POST /auth/register` always creates a `customer`. The schema has no `role` field, and `extra="forbid"` rejects attempts to send one. Operator and admin accounts are created by seeding or, later, by admins.
+- **Access token:** a JWT signed with HS256 that lasts 15 minutes and carries `sub`, `role`, `type=access`, `iss`, `aud`, `iat`, `nbf`, `exp` and `jti`.
+  - Decoding **pins the algorithm** (blocking `alg: none` and algorithm-confusion attacks) and requires every claim.
+  - The token's `role` claim is informational only. **Authorisation always reads the role and `is_active` from the database on each request**, so a demotion or deactivation takes effect immediately.
+- **Refresh token:** 256 random bits, opaque, stored only as SHA-256 (a fast hash is fine for high-entropy values), valid for 30 days.
+  - **Rotated on every use.** All tokens from one login share a `family_id`.
+  - **Reuse means theft.** Presenting an already-rotated token revokes the whole family, logging out both the attacker and the victim's session for that login, while other logins stay valid.
+  - The token row is locked with `SELECT … FOR UPDATE`, so two concurrent refreshes with the same token serialise and the second one counts as reuse (tested with real concurrent connections).
+  - `POST /auth/logout` revokes the family. It succeeds silently for unknown tokens.
+  - Token responses send `Cache-Control: no-store`.
+- **Secrets:** `JWT_SECRET` has a development default. With `ENVIRONMENT=production` the app **refuses to start** if it's the default or shorter than 32 characters.
+- **Roles:** `require_role(...)` is a dependency factory. The `/api/v1/admin` router requires `operator` or `admin`, and individual routes can narrow that further (for example, `GET /admin/users` is admin-only because it exposes personal data).
+- **Rate limiting:** fixed-window counters in Redis.
+  - INCR and EXPIRE run in one Lua script, so a counter can never be left without a TTL.
+  - Keys contain a SHA-256 of the identifier, never raw emails or IPs.
+  - Defaults, configurable through `RATE_LIMIT_*` settings:
+
+    | Endpoint | Per IP | Per email |
+    |---|---|---|
+    | Login | 30/min | 5/min |
+    | Register | 20/hour | — |
+    | Refresh | 60/min | — |
+
+  - Per-IP limits are generous on purpose, because a whole campus can share one NAT address. The per-email limit is what stops password guessing against one account.
+  - A 429 response carries `Retry-After`.
+  - **Fails closed:** if Redis is unreachable, auth endpoints return 503 rather than running unprotected.
+  - Behind a reverse proxy, run Uvicorn with `--proxy-headers --forwarded-allow-ips=<proxy>`. Client-supplied `X-Forwarded-For` is never trusted directly.

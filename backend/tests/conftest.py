@@ -3,13 +3,17 @@ import socket
 from collections.abc import AsyncIterator, Iterator
 from urllib.parse import urlsplit
 
+import httpx
 import pytest
 from alembic import command
 from fastapi.testclient import TestClient
+from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
+from app.core.db import get_db
+from app.core.redis import get_redis
 from app.main import app
 from tests.helpers import alembic_config
 
@@ -96,3 +100,47 @@ async def db_session(migrated_database_url: str) -> AsyncIterator[AsyncSession]:
             await session.close()
             await transaction.rollback()
     await engine.dispose()
+
+
+def _test_redis_url() -> str:
+    # Same server as the app, but logical DB 15, so flushing it is harmless.
+    return urlsplit(get_settings().redis_url)._replace(path="/15").geturl()
+
+
+@pytest.fixture
+async def redis() -> AsyncIterator[Redis]:
+    """A Redis client on an isolated logical DB, flushed before and after the test."""
+    url = _test_redis_url()
+    if not _reachable(url, 6379):
+        _skip_or_fail("Redis is not reachable")
+    client = Redis.from_url(url, decode_responses=True)
+    await client.flushdb()
+    try:
+        yield client
+    finally:
+        await client.flushdb()
+        await client.aclose()
+
+
+@pytest.fixture
+async def api(db_session: AsyncSession, redis: Redis) -> AsyncIterator[httpx.AsyncClient]:
+    """In-process HTTP client wired to the rolled-back `db_session` and test Redis.
+
+    Runs on the test's own event loop (unlike TestClient), so it can share the
+    asyncpg connection behind `db_session`.
+    """
+
+    async def _db() -> AsyncIterator[AsyncSession]:
+        yield db_session
+
+    async def _redis() -> Redis:
+        return redis
+
+    app.dependency_overrides[get_db] = _db
+    app.dependency_overrides[get_redis] = _redis
+    transport = httpx.ASGITransport(app=app)
+    try:
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            yield client
+    finally:
+        app.dependency_overrides.clear()

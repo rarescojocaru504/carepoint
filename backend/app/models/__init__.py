@@ -4,6 +4,7 @@ Every model module must be imported here so that `Base.metadata` is complete
 when Alembic (see `alembic/env.py`) imports this package for autogenerate.
 """
 
+from app.models.auth import RefreshToken
 from app.models.enums import (
     MachineStatus,
     PaymentStatus,
@@ -26,6 +27,7 @@ __all__ = [
     "PaymentStatus",
     "Product",
     "ProductCategory",
+    "RefreshToken",
     "Reservation",
     "ReservationStatus",
     "StockMovement",

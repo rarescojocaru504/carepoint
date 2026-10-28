@@ -13,6 +13,7 @@ ignore = [
 "tests/**" = [
     "S101",  # assert is how pytest works
     "S105",  # placeholder credentials in fixtures
+    "S106",
     "S608",  # raw SQL built from test constants to probe DB constraints
 ]
 

@@ -42,7 +42,7 @@ def test_migrations_upgrade_and_downgrade(test_database_url: str) -> None:
 
     command.upgrade(config, "head")
     assert _postgis_installed(test_database_url)
-    assert _app_table_count(test_database_url) == 7
+    assert _app_table_count(test_database_url) == 8
 
     command.downgrade(config, "base")
     assert not _postgis_installed(test_database_url)
