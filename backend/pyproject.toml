@@ -10,7 +10,11 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101"]  # assert is how pytest works
+"tests/**" = [
+    "S101",  # assert is how pytest works
+    "S105",  # placeholder credentials in fixtures
+    "S608",  # raw SQL built from test constants to probe DB constraints
+]
 
 [tool.ruff.lint.isort]
 known-first-party = ["app"]

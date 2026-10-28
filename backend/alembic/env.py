@@ -19,8 +19,9 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-# The DSN always comes from application settings (DATABASE_URL), never alembic.ini.
-database_url = get_settings().database_url
+# The DSN comes from application settings (DATABASE_URL), never alembic.ini.
+# Programmatic callers (tests) may pass `config.attributes["database_url"]`.
+database_url: str = config.attributes.get("database_url") or get_settings().database_url
 
 # Tables owned by the PostGIS extension (and its optional tiger/topology add-ons).
 # They are not described by our models, so autogenerate must not try to drop them.
