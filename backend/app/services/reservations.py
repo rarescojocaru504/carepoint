@@ -114,6 +114,23 @@ async def _view(session: AsyncSession, reservation: Reservation) -> ReservationV
     return ReservationView(reservation, machine_id, sku, name, currency)
 
 
+async def _existing_for_key(
+    session: AsyncSession, user: User, data: ReservationCreate
+) -> Reservation | None:
+    if data.idempotency_key is None:
+        return None
+    existing = await session.scalar(
+        select(Reservation).where(
+            Reservation.user_id == user.id, Reservation.idempotency_key == data.idempotency_key
+        )
+    )
+    if existing is not None and (
+        existing.slot_id != data.slot_id or existing.quantity != data.quantity
+    ):
+        raise IdempotencyConflictError("idempotency key reused with different parameters")
+    return existing
+
+
 async def create_reservation(
     session: AsyncSession, redis: Redis, user: User, data: ReservationCreate
 ) -> tuple[ReservationView, bool]:
@@ -123,21 +140,24 @@ async def create_reservation(
     """
     settings = get_settings()
 
-    # Serialise this user's reservation requests: the active-hold limit and the
-    # idempotency check below are then race-free. Released at commit/rollback.
-    await session.execute(select(func.pg_advisory_xact_lock(_user_lock_key(user.id))))
+    # An idempotent retry gets its original reservation, even if the item has
+    # sold out since, so this comes before the fast-fail below.
+    if (existing := await _existing_for_key(session, user, data)) is not None:
+        return await _view(session, existing), False
 
-    if data.idempotency_key is not None:
-        existing = await session.scalar(
-            select(Reservation).where(
-                Reservation.user_id == user.id,
-                Reservation.idempotency_key == data.idempotency_key,
-            )
-        )
-        if existing is not None:
-            if existing.slot_id != data.slot_id or existing.quantity != data.quantity:
-                raise IdempotencyConflictError("idempotency key reused with different parameters")
-            return await _view(session, existing), False
+    # Fast fail: in a rush almost every request loses. Redis already knows the
+    # slot is short, so refuse before taking locks or querying Postgres. Not a
+    # correctness check (an atomic Lua script still decides every request that
+    # gets past this); it only spares the database the work of losers.
+    snapshot = await hold_store.snapshot(redis, data.slot_id)
+    if snapshot.initialised and snapshot.available < data.quantity:
+        raise InsufficientStockError(snapshot.available)
+
+    # Serialise this user's reservation requests: the active-hold limit and the
+    # idempotency check are then race-free. Released at commit/rollback.
+    await session.execute(select(func.pg_advisory_xact_lock(_user_lock_key(user.id))))
+    if (existing := await _existing_for_key(session, user, data)) is not None:
+        return await _view(session, existing), False  # a concurrent duplicate won
 
     row = (
         await session.execute(

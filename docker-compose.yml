@@ -38,13 +38,18 @@ services:
       context: ./backend
     restart: unless-stopped
     # Apply pending migrations before serving traffic.
+    # --timeout-keep-alive 75: longer than typical load-balancer idle timeouts
+    # (60 s), so the server never closes a connection a client is about to reuse
+    # (uvicorn's 5 s default caused sporadic "server disconnected" errors under
+    # load). Worker processes: WEB_CONCURRENCY (read by uvicorn), default 1.
     command: >-
       sh -c "alembic upgrade head &&
-             exec uvicorn app.main:app --host 0.0.0.0 --port 8000"
+             exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --timeout-keep-alive 75"
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-carepoint}:${POSTGRES_PASSWORD:-carepoint}@db:5432/${POSTGRES_DB:-carepoint}
       TEST_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-carepoint}:${POSTGRES_PASSWORD:-carepoint}@db:5432/${POSTGRES_DB:-carepoint}_test
       REDIS_URL: redis://redis:6379/0
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-1}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready', timeout=3)"]
       interval: 10s

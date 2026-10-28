@@ -42,7 +42,8 @@ class Settings(BaseSettings):
     rate_limit_register_ip: RateLimitSpec = "20/3600"
     rate_limit_refresh_ip: RateLimitSpec = "60/60"
 
-    rate_limit_discovery_ip: RateLimitSpec = "300/60"
+    # Generous: a whole campus can share one NAT address (ADR-014).
+    rate_limit_discovery_ip: RateLimitSpec = "1200/60"
 
     # A machine counts as online if it was heard from within this window.
     machine_online_window_seconds: int = Field(default=90, ge=10, le=3600)

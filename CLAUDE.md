@@ -111,17 +111,17 @@ Rules for working through the roadmap:
 - [x] `GET /api/v1/products/{sku}/nearby` answers "where can I get this item nearest to me?" (#9). Also `GET /api/v1/products` for the catalogue.
 - **Done when:** the tests use seeded data with known distances and check ordering, radius cut-off and the availability arithmetic.
 
-### Phase 4 — Reservation engine (Redis 15-minute lock) ⭐ core
+### Phase 4 — Reservation engine (Redis 15-minute lock) ⭐ core ✅
 - [x] `POST /api/v1/reservations` places an atomic hold on N units of a slot. A Redis Lua script checks availability and records the hold, with its expiry, in a per-slot sorted set in one step (ADR-012). The reservation row in Postgres has status `held` and an `expires_at` (#11).
 - [x] `DELETE /api/v1/reservations/{id}` lets the user cancel and release the hold (#11). Also `GET /api/v1/reservations[/{id}]`.
 - [x] An expiry sweeper releases expired holds and marks them `expired` (keyspace notifications aren't needed: expiry is part of the hold arithmetic, ADR-012). Redis and Postgres are reconciled at startup and every 5 minutes (ADR-013, #12).
 - [x] The hold length is a setting, `RESERVATION_HOLD_SECONDS`: 900 by default, about 60 in demo mode, so an expiry can be shown live (#11).
 - [x] Per-user limits: a maximum number of active holds and idempotency keys on create (#11).
-- [ ] Race-condition tests:
+- [x] Race-condition tests:
   - [x] N concurrent reservations for the last unit produce exactly 1 success (#11);
   - [x] expiry while a dispense is in flight (#12);
   - [x] Redis restart and reconciliation (#12).
-- [ ] Load test (Locust or k6, in `loadtest/`): for example, 500 virtual users race for the last unit and exactly one hold succeeds, with p95 latency reported. The results are saved to `docs/benchmarks.md` for the pitch.
+- [x] Load test (`loadtest/`: a precise race script plus Locust): 500 simultaneous customers race for the last unit and exactly one hold succeeds in every round (10/10, 0 errors, p95 0.87 s). The results are in `docs/benchmarks.md` (#13).
 - **Done when:** the race tests pass reliably over many repeated runs, and the lock design is documented as an ADR.
 
 ### Phase 5 — Checkout & pickup codes

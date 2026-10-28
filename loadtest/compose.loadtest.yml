@@ -1,0 +1,10 @@
+# Compose override for sustained load tests ONLY. Every virtual user shares the
+# load generator's single IP, so per-IP and per-user limits are lifted here to
+# measure the server rather than the rate limiter. Never use in production.
+#
+#   docker compose -f docker-compose.yml -f loadtest/compose.loadtest.yml up -d
+services:
+  backend:
+    environment:
+      RATE_LIMIT_DISCOVERY_IP: "1000000/60"
+      RATE_LIMIT_RESERVATION_USER: "1000000/60"
