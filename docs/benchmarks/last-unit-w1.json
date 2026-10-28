@@ -1,0 +1,20 @@
+{
+  "customers_per_round": 500,
+  "units_per_slot": 1,
+  "client_processes": 2,
+  "rounds": 10,
+  "rounds_passed": 10,
+  "total_requests": 5000,
+  "reserved": 10,
+  "refused_409": 4990,
+  "errors": 0,
+  "latency_ms": {
+    "p50": 956.2,
+    "p95": 1311.9,
+    "p99": 1376.3,
+    "max": 1437.7,
+    "mean": 959.6
+  },
+  "burst_ms_mean": 1358.3,
+  "throughput_rps_during_burst": 368.1
+}

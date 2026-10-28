@@ -296,3 +296,23 @@ Every operation is **one Lua script**, so Redis runs it atomically. Each script 
     | Dispense not updating Redis | 6 |
 
 - **Test infrastructure:** concurrency tests use a committed "world" fixture (`tests/world.py`). Its machines are in the Southern Ocean, away from every other test's coordinates. Cleanup deletes the ledger rows it created by suspending triggers (`session_replication_role = replica`) for that one transaction. This is test-only; the application never bypasses the append-only rule.
+
+## ADR-014: Load testing, and what it changed (2026-10-28)
+
+**Tools.** They live in `loadtest/`; methodology and results are in `docs/benchmarks.md`.
+- **`race.py`**, the anti-oversell experiment. *N* customers send `POST /reservations` for the same slot at one shared wall-clock instant. A round passes only if the number of winners is exactly `min(units, N)`, every loser gets a clean 409, nothing errors, and the API then reports 0 left. The script exits non-zero on any failure.
+- **`locustfile.py`**, sustained mixed traffic: browse, open machines, reserve and cancel.
+- **`python -m app.scripts.loadtest_fixtures create|cleanup`**, test data. It creates customers with pre-issued tokens and machines on "Null Island" (0, 0), away from the demo map, and refuses to run in production.
+
+**Result:** 500 customers against 1 unit gave **one winner in each of 10/10 rounds and 0 errors in 5,000 requests**, with p95 0.87 s on 2 Uvicorn workers. Everything shared one 4-vCPU box.
+
+**Changes made because of the measurements:**
+1. **Keep-alive.** Uvicorn's default 5 s idle timeout caused sporadic `RemoteProtocolError: server disconnected`, because the server closed connections just as clients reused them. The Compose command now passes `--timeout-keep-alive 75`, longer than typical load-balancer idle timeouts of about 60 s, which is the standard rule behind a load balancer. Errors went to 0.
+2. **Fast-fail pre-check.** In a rush almost every request loses, but each one used to take the per-user lock and run 3 queries before Redis refused it. `create_reservation` now reads the slot's Redis availability first and refuses straight away when the slot is clearly short.
+   - **Not a correctness check:** the atomic Lua script still decides every request that gets past it.
+   - **Ordered after the idempotency lookup,** so a retried request whose reservation exists still gets `200` with its original reservation even after the item sells out (tested and mutation-checked).
+   - It's skipped for slots Redis doesn't know yet.
+   - **Result:** p95 with 1 worker went from 2.1 s to 1.3 s.
+3. **Worker processes** can now be set through `WEB_CONCURRENCY` (read by Uvicorn; Compose default 1). The background jobs are already safe across processes (ADR-013).
+4. **Campus NAT.** The discovery limit per IP went from 300/min to **1,200/min**, because hundreds of students on campus Wi-Fi share one public IP and 300/min covers only about 60–100 app opens per minute for the whole network. The long-term answer is per-device or per-account limits once the mobile app sends a device identity (Phase 9).
+5. **Measuring the tool, not the system.** A single httpx event loop maxed out one core while the server sat idle. `top` caught it, and that's why `race.py` spreads the burst over several aiohttp client processes. Lesson: check where the CPU goes before you believe a latency number.

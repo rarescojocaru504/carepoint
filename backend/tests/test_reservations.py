@@ -424,3 +424,33 @@ async def test_race_cancel_and_reserve(world: World, redis: Redis) -> None:
     snap = await hold_store.snapshot(redis, slot.id)
     assert held <= 3
     assert snap.held == held  # Redis and Postgres agree
+
+
+async def test_fast_fail_matches_full_path(
+    api: httpx.AsyncClient, db_session: AsyncSession, redis: Redis
+) -> None:
+    """Once Redis knows a slot is short, refusals come from the fast path with the
+    same response as the full path, and nothing is written."""
+    alice, bob = await make_user(db_session), await make_user(db_session)
+    slot, _ = await _stocked_slot(db_session, quantity=1)
+    assert (await _reserve(api, alice, slot.id)).status_code == 201
+    refused = await _reserve(api, bob, slot.id)
+    assert refused.status_code == 409
+    assert refused.json()["detail"] == {
+        "code": "insufficient_stock",
+        "message": "Not enough stock",
+        "available": 0,
+    }
+    assert await db_session.scalar(select(func.count()).select_from(Reservation)) == 1
+
+
+async def test_idempotent_retry_after_sell_out_returns_original(
+    api: httpx.AsyncClient, db_session: AsyncSession
+) -> None:
+    """A retried request whose reservation exists must not be fast-failed as sold out."""
+    user = await make_user(db_session)
+    slot, _ = await _stocked_slot(db_session, quantity=1)
+    first = await _reserve(api, user, slot.id, idempotency_key="retry-after-sellout")
+    retry = await _reserve(api, user, slot.id, idempotency_key="retry-after-sellout")
+    assert (first.status_code, retry.status_code) == (201, 200)
+    assert first.json()["id"] == retry.json()["id"]
