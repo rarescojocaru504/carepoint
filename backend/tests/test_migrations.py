@@ -1,52 +1,58 @@
 import asyncio
-from pathlib import Path
 
 import pytest
 from alembic import command
-from alembic.config import Config
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-BACKEND_DIR = Path(__file__).resolve().parent.parent
+from tests.helpers import alembic_config
 
 pytestmark = pytest.mark.integration
 
 
-def _alembic_config() -> Config:
-    # No config file name: avoids alembic's fileConfig() hijacking pytest logging.
-    config = Config()
-    config.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
-    return config
-
-
-async def _postgis_installed(database_url: str) -> bool:
+async def _scalar(database_url: str, sql: str) -> object:
     engine = create_async_engine(database_url)
     try:
         async with engine.connect() as conn:
-            result = await conn.execute(
-                text("SELECT count(*) FROM pg_extension WHERE extname = 'postgis'")
-            )
-            count: int = result.scalar_one()
-            return count == 1
+            return (await conn.execute(text(sql))).scalar_one()
     finally:
         await engine.dispose()
 
 
+def _postgis_installed(database_url: str) -> bool:
+    count = asyncio.run(
+        _scalar(database_url, "SELECT count(*) FROM pg_extension WHERE extname = 'postgis'")
+    )
+    return count == 1
+
+
+def _app_table_count(database_url: str) -> object:
+    return asyncio.run(
+        _scalar(
+            database_url,
+            "SELECT count(*) FROM pg_tables WHERE schemaname = 'public' "
+            "AND tablename NOT IN ('spatial_ref_sys', 'alembic_version')",
+        )
+    )
+
+
 def test_migrations_upgrade_and_downgrade(test_database_url: str) -> None:
-    config = _alembic_config()
+    config = alembic_config(test_database_url)
     command.downgrade(config, "base")
 
     command.upgrade(config, "head")
-    assert asyncio.run(_postgis_installed(test_database_url))
+    assert _postgis_installed(test_database_url)
+    assert _app_table_count(test_database_url) == 7
 
     command.downgrade(config, "base")
-    assert not asyncio.run(_postgis_installed(test_database_url))
+    assert not _postgis_installed(test_database_url)
+    assert _app_table_count(test_database_url) == 0
 
     command.upgrade(config, "head")
 
 
 def test_models_match_migrations(test_database_url: str) -> None:
     """Fails if a model changed without a matching Alembic revision."""
-    config = _alembic_config()
+    config = alembic_config(test_database_url)
     command.upgrade(config, "head")
     command.check(config)

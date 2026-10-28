@@ -86,21 +86,21 @@ Rules for working through the roadmap:
 - [x] CI: lint, `mypy --strict`, tests against real services, Docker smoke test, auto-merge (#2)
 
 ### Phase 1 — Domain model & seed data
-- [ ] Models and migration:
+- [x] Models and migration (#5):
   - `users`, with a `role` of `customer`, `operator` or `admin`
-  - `machines`: serial number, name, address, `geography(Point, 4326)` location, status, `last_seen_at`, hashed API secret
+  - `machines`: serial number, name, address, `geography(Point, 4326)` location, status, `last_seen_at`, Ed25519 public key (ADR-007)
   - `products`: SKU, name, category, price in integer cents, image URL
   - `machine_slots`: machine, slot code, product, physical quantity, capacity, low-stock threshold
   - `stock_movements`: an append-only ledger of every change to a slot's quantity (restock, dispense, adjustment, telemetry correction), recording who or what made the change and why
   - `reservations`
   - `orders`
-- [ ] Pydantic schemas with strict validation: coordinate bounds, positive quantities, enum statuses.
+- [x] Pydantic schemas with strict validation: coordinate bounds, positive quantities, enum statuses (#5).
 - [ ] Idempotent seed command (`python -m app.scripts.seed`) that creates demo machines with real coordinates in one city, a product catalogue, stock and a demo operator account.
 - **Done when:** the migration upgrades and downgrades cleanly, `alembic check` finds nothing, and the seed runs twice without creating duplicates.
 
 ### Phase 2 — Authentication
 - [ ] User register and login with argon2 password hashes, short-lived JWT access tokens plus refresh tokens, and `GET /api/v1/me`.
-- [ ] Machine authentication with a per-machine secret, stored hashed. Machines sign requests or WebSocket handshakes with HMAC (machine ID, timestamp, nonce) and get replay protection. Write this up as an ADR.
+- [ ] Machine authentication with a per-machine Ed25519 key pair: the server stores only the public key (ADR-007). Machines sign requests or WebSocket handshakes (machine ID, timestamp, nonce, body hash) and get replay protection. Write the signing scheme up as an ADR.
 - [ ] Role-based access: a `require_role(...)` dependency. `/api/v1/admin/*` is restricted to `operator` and `admin`.
 - [ ] Rate limiting on auth endpoints, backed by Redis.
 - **Done when:** protected routes reject missing, expired or forged tokens and the wrong role, and the tests cover all of them.
