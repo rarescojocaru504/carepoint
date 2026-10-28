@@ -85,7 +85,7 @@ Rules for working through the roadmap:
 - [x] Alembic async setup with migration `0001` enabling PostGIS (#1)
 - [x] CI: lint, `mypy --strict`, tests against real services, Docker smoke test, auto-merge (#2)
 
-### Phase 1 — Domain model & seed data
+### Phase 1 — Domain model & seed data ✅
 - [x] Models and migration (#5):
   - `users`, with a `role` of `customer`, `operator` or `admin`
   - `machines`: serial number, name, address, `geography(Point, 4326)` location, status, `last_seen_at`, Ed25519 public key (ADR-007)
@@ -95,7 +95,7 @@ Rules for working through the roadmap:
   - `reservations`
   - `orders`
 - [x] Pydantic schemas with strict validation: coordinate bounds, positive quantities, enum statuses (#5).
-- [ ] Idempotent seed command (`python -m app.scripts.seed`) that creates demo machines with real coordinates in one city, a product catalogue, stock and a demo operator account.
+- [x] Idempotent seed command (`python -m app.scripts.seed`) that creates demo machines with real coordinates in one city, a product catalogue, stock and a demo operator account (#6).
 - **Done when:** the migration upgrades and downgrades cleanly, `alembic check` finds nothing, and the seed runs twice without creating duplicates.
 
 ### Phase 2 — Authentication

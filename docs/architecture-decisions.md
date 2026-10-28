@@ -81,3 +81,19 @@
   - Signatures are small (64 bytes) and verify quickly.
   - Ed25519 is supported on Raspberry Pi (Python `cryptography`/libsodium) and ESP32 (libsodium/Monocypher).
 - The signing scheme (canonical request, timestamp window, nonce replay protection) is specified in Phase 2, `feature/machine-auth`.
+
+## ADR-008: Demo data seeding (2026-10-28)
+
+- Run it with `python -m app.scripts.seed`, or `docker compose exec backend python -m app.scripts.seed`.
+- **What it creates:**
+  - 6 machines around university campuses in Bucharest, one of them in `maintenance`, with 8 slots each;
+  - 12 products in `RON`, with the currency taken from the `CURRENCY` setting;
+  - an admin, an operator and a customer account.
+- **Where the data lives:** `app/services/demo_data.py`. Edit `MACHINES` to demo somewhere else.
+- **Idempotent by natural key:** email, SKU, serial number, and machine plus slot code. A second run creates only what's missing. It **never** changes existing rows, so live stock, operator edits and changed passwords survive a re-seed (tested).
+- Initial stock goes through `record_stock_movement(reason=initial)`, so the ledger is complete from the first row.
+- **Medicines are left out on purpose.** In most of the EU, over-the-counter drugs can't be sold from unattended machines without pharmacy oversight.
+- **Safety:**
+  - the command refuses to run with `ENVIRONMENT=production`;
+  - passwords come from the `SEED_ADMIN_PASSWORD`, `SEED_OPERATOR_PASSWORD` and `SEED_CUSTOMER_PASSWORD` environment variables, falling back to documented development defaults;
+  - passwords are hashed with argon2id (`app/core/security.py`).
