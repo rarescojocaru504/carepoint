@@ -105,10 +105,10 @@ Rules for working through the roadmap:
 - [x] Rate limiting on auth endpoints, backed by Redis (#7).
 - **Done when:** protected routes reject missing, expired or forged tokens and the wrong role, and the tests cover all of them.
 
-### Phase 3 — Discovery & catalogue API
-- [ ] `GET /api/v1/machines/nearby?lat=&lng=&radius_m=` uses PostGIS `ST_DWithin` and orders by distance. It returns distance, online status and availability counts.
-- [ ] `GET /api/v1/machines/{id}` returns the machine's products with **available** quantity, meaning physical stock minus active holds.
-- [ ] `GET /api/v1/products/{sku}/nearby` answers "where can I get this item nearest to me?"
+### Phase 3 — Discovery & catalogue API ✅
+- [x] `GET /api/v1/machines/nearby?lat=&lng=&radius_m=` uses PostGIS `ST_DWithin` and orders by distance. It returns distance, online status and availability counts (#9).
+- [x] `GET /api/v1/machines/{id}` returns the machine's products with **available** quantity, meaning physical stock minus active holds (#9).
+- [x] `GET /api/v1/products/{sku}/nearby` answers "where can I get this item nearest to me?" (#9). Also `GET /api/v1/products` for the catalogue.
 - **Done when:** the tests use seeded data with known distances and check ordering, radius cut-off and the availability arithmetic.
 
 ### Phase 4 — Reservation engine (Redis 15-minute lock) ⭐ core

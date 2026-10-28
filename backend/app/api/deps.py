@@ -86,13 +86,21 @@ def client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-async def enforce_rate_limit(redis: Redis, scope: str, identifier: str, spec: str) -> None:
-    """Raise 429 over the limit. Fails closed (503) if Redis is unavailable: an
-    unprotected login endpoint is worse than a briefly unavailable one."""
+async def enforce_rate_limit(
+    redis: Redis, scope: str, identifier: str, spec: str, *, fail_open: bool = False
+) -> None:
+    """Raise 429 over the limit.
+
+    If Redis is unavailable, fail closed (503) by default: an unprotected login
+    endpoint is worse than a briefly unavailable one. Read-only public endpoints
+    pass `fail_open=True` so the map keeps working during a Redis outage.
+    """
     try:
         result = await hit(redis, scope, identifier, RateLimitRule.parse(spec))
     except RedisError:
         logger.exception("Rate limiter unavailable (scope=%s)", scope)
+        if fail_open:
+            return
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Service unavailable"
         ) from None
@@ -104,11 +112,15 @@ async def enforce_rate_limit(redis: Redis, scope: str, identifier: str, spec: st
         )
 
 
-def rate_limit_by_ip(scope: str, spec: Callable[[Settings], str]) -> Callable[..., Awaitable[None]]:
+def rate_limit_by_ip(
+    scope: str, spec: Callable[[Settings], str], *, fail_open: bool = False
+) -> Callable[..., Awaitable[None]]:
     """Dependency factory: limit an endpoint per client IP."""
 
     async def dependency(request: Request, redis: RedisClient) -> None:
-        await enforce_rate_limit(redis, scope, client_ip(request), spec(get_settings()))
+        await enforce_rate_limit(
+            redis, scope, client_ip(request), spec(get_settings()), fail_open=fail_open
+        )
 
     return dependency
 

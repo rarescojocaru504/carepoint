@@ -1,11 +1,21 @@
 """Builders for persisted test data. Each takes overrides and flushes (never commits)."""
 
 import itertools
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Machine, MachineSlot, Product, ProductCategory, User, UserRole
+from app.models import (
+    Machine,
+    MachineSlot,
+    Product,
+    ProductCategory,
+    Reservation,
+    ReservationStatus,
+    User,
+    UserRole,
+)
 from app.schemas.common import GeoPoint
 from app.services.geo import to_geography
 
@@ -74,3 +84,25 @@ async def make_slot(
     session.add(slot)
     await session.flush()
     return slot
+
+
+async def make_reservation(
+    session: AsyncSession,
+    *,
+    user: User,
+    slot: MachineSlot,
+    quantity: int = 1,
+    status: ReservationStatus = ReservationStatus.HELD,
+    expires_in: timedelta = timedelta(minutes=15),
+) -> Reservation:
+    reservation = Reservation(
+        user_id=user.id,
+        slot_id=slot.id,
+        quantity=quantity,
+        unit_price_cents=999,
+        status=status,
+        expires_at=datetime.now(UTC) + expires_in,
+    )
+    session.add(reservation)
+    await session.flush()
+    return reservation

@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     rate_limit_register_ip: RateLimitSpec = "20/3600"
     rate_limit_refresh_ip: RateLimitSpec = "60/60"
 
+    rate_limit_discovery_ip: RateLimitSpec = "300/60"
+
+    # A machine counts as online if it was heard from within this window.
+    machine_online_window_seconds: int = Field(default=90, ge=10, le=3600)
+
     # Machine request signing (ADR-010): accepted clock skew, either direction.
     machine_auth_max_skew_seconds: int = Field(default=60, ge=5, le=600)
 
