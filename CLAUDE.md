@@ -114,13 +114,13 @@ Rules for working through the roadmap:
 ### Phase 4 — Reservation engine (Redis 15-minute lock) ⭐ core
 - [x] `POST /api/v1/reservations` places an atomic hold on N units of a slot. A Redis Lua script checks availability and records the hold, with its expiry, in a per-slot sorted set in one step (ADR-012). The reservation row in Postgres has status `held` and an `expires_at` (#11).
 - [x] `DELETE /api/v1/reservations/{id}` lets the user cancel and release the hold (#11). Also `GET /api/v1/reservations[/{id}]`.
-- [ ] An expiry worker, based on keyspace notifications or a sweeper as a safety net, releases expired holds and marks them `expired`. Redis and Postgres are reconciled on startup.
+- [x] An expiry sweeper releases expired holds and marks them `expired` (keyspace notifications aren't needed: expiry is part of the hold arithmetic, ADR-012). Redis and Postgres are reconciled at startup and every 5 minutes (ADR-013, #12).
 - [x] The hold length is a setting, `RESERVATION_HOLD_SECONDS`: 900 by default, about 60 in demo mode, so an expiry can be shown live (#11).
 - [x] Per-user limits: a maximum number of active holds and idempotency keys on create (#11).
 - [ ] Race-condition tests:
   - [x] N concurrent reservations for the last unit produce exactly 1 success (#11);
-  - expiry while a dispense is in flight;
-  - Redis restart and reconciliation.
+  - [x] expiry while a dispense is in flight (#12);
+  - [x] Redis restart and reconciliation (#12).
 - [ ] Load test (Locust or k6, in `loadtest/`): for example, 500 virtual users race for the last unit and exactly one hold succeeds, with p95 latency reported. The results are saved to `docs/benchmarks.md` for the pitch.
 - **Done when:** the race tests pass reliably over many repeated runs, and the lock design is documented as an ADR.
 

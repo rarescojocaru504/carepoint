@@ -252,3 +252,47 @@ Every operation is **one Lua script**, so Redis runs it atomically. Each script 
   - cancels interleaved with new reservations;
   - 100 coroutines for 5 units, over 10 rounds.
 - **Mutation check:** replacing the atomic script with a check-then-act version made 33 race tests fail, including one run with 19 holds for 3 units.
+
+## ADR-013: Expiry sweeper, reconciliation and dispensing (2026-10-28)
+
+**Background jobs.** These run in-process, started from the FastAPI lifespan in `app/services/background.py`. They're controlled by `BACKGROUND_WORKERS_ENABLED`; the test suite sets it to false and drives the jobs directly. Each job loops on its own sessions. A failing pass is logged and retried next interval, and never kills the loop. Every job is safe to run on several app instances at once, so no leader election is needed.
+
+- **Expiry sweeper** (`EXPIRY_SWEEP_INTERVAL_SECONDS`, 15 s). It marks `held` and `paid` reservations past `expires_at` as `expired`, then tidies their Redis holds. It's bookkeeping only: availability already ignores lapsed holds (ADR-011, ADR-012). It is also where Phase 5 will void payments.
+  - The batch is selected in a **`MATERIALIZED` CTE** with `FOR UPDATE SKIP LOCKED`, and the `UPDATE` re-checks the status itself.
+  - *Lesson learned:* the first version, `UPDATE … WHERE id IN (SELECT … LIMIT n FOR UPDATE SKIP LOCKED)`, expired **7 rows with a limit of 5** in a test. Postgres had picked a nested-loop semi-join that re-runs the locking subquery for every outer row; it happened on a never-analyzed table and isn't reliably reproducible afterwards. A `MATERIALIZED` CTE is evaluated once whatever plan Postgres chooses, and the status re-check in the `UPDATE` stops a reservation that was just dispensed from ever being expired.
+  - `SKIP LOCKED` means a reservation locked by another transaction (a dispense in flight, a cancel) is **skipped**. It is never waited on or overwritten, and whatever that transaction decides wins.
+- **Reconciliation** runs at startup and then every `RECONCILE_INTERVAL_SECONDS` (300 s). For each slot it compares Redis with Postgres and applies **only the difference**, in one atomic script:
+  - holds Postgres has (`held`/`paid`, unexpired) but Redis lacks are **added**;
+  - Redis holds whose reservation is finished in Postgres are **removed**;
+  - Redis holds with no Postgres row are **removed once they're older than `HOLD_ORPHAN_GRACE_SECONDS`** (60 s). Younger ones may be an insert still in flight, so they stay;
+  - the quantity mirror is set with **compare-and-set**: if a dispense or restock lands between the read and the write, it's left alone and fixed on the next pass;
+  - a slot that isn't initialised is built from scratch, as after a Redis restart without persistence.
+
+  Because only a difference is applied, holds granted while reconciliation is running are never dropped.
+- **Dispensing** (`services/dispensing.complete_dispense`, which Phase 6 will call):
+  1. Lock the reservation row. That makes the sweeper skip it.
+  2. Check that it's `held` or `paid` and unexpired. A dispense that **started** in time completes even if the clock passes `expires_at` while it runs. If the sweeper took the lock first, the dispense is refused as `expired`.
+  3. In one transaction, write a `dispense` stock movement and set the status to `dispensed`. The ledger refuses to take stock below zero, which is the final guard.
+  4. Commit, then remove the Redis hold and the physical units together in one atomic step, so availability never briefly dips or spikes.
+
+  Calling it again for an already-dispensed reservation changes nothing.
+- **Known small window:** if that last Redis step fails after the commit, availability stays correct only while the hold is still present. Once the hold lapses, Redis over-counts stock by the dispensed units until the next reconciliation (at most 5 minutes). The ledger still refuses a dispense that would go below zero, so no phantom items can be dispensed, but a reservation could be accepted that later can't be fulfilled. Phase 5's payment void covers that case.
+- **Evidence:**
+  - **Live server:**
+    - the sweeper expired a backdated hold within about 2 s;
+    - startup reconciliation corrected a corrupted Redis quantity from 99 back to 8.
+  - **Tests, on real concurrent connections:**
+    - a dispense in flight across its expiry, with the sweeper running in parallel and stepping aside;
+    - the sweeper getting there first, so the dispense is refused;
+    - 5 rounds of 8 reservations around the expiry boundary, dispensed and swept concurrently. Each one ends exactly once, the slot quantity matches the ledger, and Redis agrees;
+    - a Redis wipe followed by a full rebuild.
+  - **Mutation-tested:**
+
+    | Deliberately broken | Tests that failed |
+    |---|---|
+    | Sweeper with no lock and no status re-check | 1 |
+    | Reconciliation without compare-and-set | 1 |
+    | No orphan grace period | 1 |
+    | Dispense not updating Redis | 6 |
+
+- **Test infrastructure:** concurrency tests use a committed "world" fixture (`tests/world.py`). Its machines are in the Southern Ocean, away from every other test's coordinates. Cleanup deletes the ledger rows it created by suspending triggers (`session_replication_role = replica`) for that one transaction. This is test-only; the application never bypasses the append-only rule.

@@ -53,6 +53,13 @@ class Settings(BaseSettings):
     reservation_hold_seconds: int = Field(default=900, ge=30, le=3600)
     max_active_reservations_per_user: int = Field(default=3, ge=1, le=20)
     rate_limit_reservation_user: RateLimitSpec = "20/60"
+    # Background jobs (ADR-013). Disabled in the test suite, which drives them directly.
+    background_workers_enabled: bool = True
+    expiry_sweep_interval_seconds: int = Field(default=15, ge=1, le=600)
+    reconcile_interval_seconds: int = Field(default=300, ge=10, le=86_400)
+    # A Redis hold with no Postgres row is kept this long (its insert may still
+    # be in flight) before reconciliation treats it as an orphan.
+    hold_orphan_grace_seconds: int = Field(default=60, ge=5, le=3600)
 
     # Machine request signing (ADR-010): accepted clock skew, either direction.
     machine_auth_max_skew_seconds: int = Field(default=60, ge=5, le=600)

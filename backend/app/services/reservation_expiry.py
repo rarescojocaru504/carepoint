@@ -1,0 +1,70 @@
+"""Expiry sweeper: record lapsed holds as `expired` (ADR-013).
+
+Bookkeeping, not correctness: availability already ignores holds past their
+`expires_at` (ADR-011/012) the moment they lapse. The sweeper makes Postgres
+say so explicitly, tidies Redis, and is the hook where Phase 5 voids payments.
+"""
+
+import logging
+import uuid
+
+from redis.asyncio import Redis
+from redis.exceptions import RedisError
+from sqlalchemy import func, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models import Reservation, ReservationStatus
+from app.services import hold_store
+from app.services.availability import ACTIVE_HOLD_STATUSES
+
+logger = logging.getLogger(__name__)
+
+
+async def expire_due_reservations(
+    session: AsyncSession, redis: Redis, *, batch_size: int = 500
+) -> list[uuid.UUID]:
+    """Mark up to `batch_size` lapsed holds expired. Returns their ids.
+
+    `FOR UPDATE SKIP LOCKED`: a reservation locked by another transaction (a
+    dispense in flight, a cancel) is skipped, never waited on or overridden;
+    whatever that transaction decides wins, and a later pass re-checks it.
+    Safe to run concurrently on several app instances.
+    """
+    # The batch is chosen in a MATERIALIZED CTE so it is evaluated exactly once.
+    # As `WHERE id IN (SELECT ... LIMIT n FOR UPDATE SKIP LOCKED)` the planner
+    # may pick a nested-loop semi-join that re-runs the locking subquery per
+    # outer row, and the LIMIT then no longer bounds the update (we hit this).
+    due = (
+        select(Reservation.id)
+        .where(
+            Reservation.status.in_(ACTIVE_HOLD_STATUSES),
+            Reservation.expires_at <= func.now(),
+        )
+        .order_by(Reservation.expires_at)
+        .limit(batch_size)
+        .with_for_update(skip_locked=True)
+        .cte("due")
+        .prefix_with("MATERIALIZED")
+    )
+    rows = (
+        await session.execute(
+            update(Reservation)
+            # Re-checked against the row's latest version if it changed meanwhile
+            # (READ COMMITTED), so a just-dispensed reservation is never expired.
+            .where(Reservation.id == due.c.id, Reservation.status.in_(ACTIVE_HOLD_STATUSES))
+            .values(status=ReservationStatus.EXPIRED)
+            .returning(Reservation.id, Reservation.slot_id)
+            .execution_options(synchronize_session=False)
+        )
+    ).all()
+    await session.commit()
+
+    for reservation_id, slot_id in rows:
+        try:
+            await hold_store.release(redis, slot_id, reservation_id)
+        except RedisError:
+            # Redis already ignores the lapsed hold; reconciliation removes it later.
+            logger.warning("Could not tidy expired hold %s in Redis", reservation_id)
+    if rows:
+        logger.info("Expired %d reservation(s)", len(rows))
+    return [reservation_id for reservation_id, _ in rows]
