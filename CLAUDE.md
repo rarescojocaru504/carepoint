@@ -98,9 +98,9 @@ Rules for working through the roadmap:
 - [x] Idempotent seed command (`python -m app.scripts.seed`) that creates demo machines with real coordinates in one city, a product catalogue, stock and a demo operator account (#6).
 - **Done when:** the migration upgrades and downgrades cleanly, `alembic check` finds nothing, and the seed runs twice without creating duplicates.
 
-### Phase 2 — Authentication
+### Phase 2 — Authentication ✅
 - [x] User register and login with argon2 password hashes, short-lived JWT access tokens plus rotating refresh tokens with reuse detection, and `GET /api/v1/me` (#7).
-- [ ] Machine authentication with a per-machine Ed25519 key pair: the server stores only the public key (ADR-007). Machines sign requests or WebSocket handshakes (machine ID, timestamp, nonce, body hash) and get replay protection. Write the signing scheme up as an ADR.
+- [x] Machine authentication with a per-machine Ed25519 key pair: the server stores only the public key (ADR-007). Machines sign requests or WebSocket handshakes (machine ID, timestamp, nonce, body hash) and get replay protection. The signing scheme is ADR-010 (#8).
 - [x] Role-based access: a `require_role(...)` dependency. `/api/v1/admin/*` is restricted to `operator` and `admin` (#7).
 - [x] Rate limiting on auth endpoints, backed by Redis (#7).
 - **Done when:** protected routes reject missing, expired or forged tokens and the wrong role, and the tests cover all of them.

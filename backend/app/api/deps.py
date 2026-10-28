@@ -14,7 +14,16 @@ from app.core.config import Settings, get_settings
 from app.core.db import get_db
 from app.core.redis import get_redis
 from app.core.security import InvalidTokenError, decode_access_token
-from app.models import User, UserRole
+from app.models import Machine, User, UserRole
+from app.services.machine_auth import (
+    HEADER_MACHINE,
+    HEADER_NONCE,
+    HEADER_SIGNATURE,
+    HEADER_TIMESTAMP,
+    MachineAuthError,
+    parse_signed_headers,
+    verify_machine_request,
+)
 from app.services.rate_limit import RateLimitRule, hit
 
 logger = logging.getLogger(__name__)
@@ -102,3 +111,50 @@ def rate_limit_by_ip(scope: str, spec: Callable[[Settings], str]) -> Callable[..
         await enforce_rate_limit(redis, scope, client_ip(request), spec(get_settings()))
 
     return dependency
+
+
+async def get_authenticated_machine(
+    request: Request, session: DbSession, redis: RedisClient
+) -> Machine:
+    """Authenticate a machine from its Ed25519-signed request (ADR-010).
+
+    Signs over the raw path and query exactly as received, so no normalisation
+    difference between client and server can break or bypass verification.
+    Every failure gets the same 401; the reason is only logged.
+    """
+    raw_path = request.scope.get("raw_path") or request.scope["path"].encode()
+    query = request.scope.get("query_string", b"")
+    path_and_query = raw_path.decode("latin-1") + ("?" + query.decode("latin-1") if query else "")
+    try:
+        signed = parse_signed_headers(
+            {
+                name: request.headers.get(name)
+                for name in (HEADER_MACHINE, HEADER_TIMESTAMP, HEADER_NONCE, HEADER_SIGNATURE)
+            }
+        )
+        return await verify_machine_request(
+            session,
+            redis,
+            headers=signed,
+            method=request.method,
+            path_and_query=path_and_query,
+            body=await request.body(),
+            max_skew_seconds=get_settings().machine_auth_max_skew_seconds,
+        )
+    except MachineAuthError as exc:
+        logger.warning(
+            "Machine authentication rejected: %s (serial header=%r)",
+            exc.reason,
+            request.headers.get(HEADER_MACHINE),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid machine signature"
+        ) from None
+    except RedisError:
+        logger.exception("Replay store unavailable")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Service unavailable"
+        ) from None
+
+
+AuthenticatedMachine = Annotated[Machine, Depends(get_authenticated_machine)]

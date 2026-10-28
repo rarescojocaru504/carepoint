@@ -129,3 +129,55 @@
   - A 429 response carries `Retry-After`.
   - **Fails closed:** if Redis is unreachable, auth endpoints return 503 rather than running unprotected.
   - Behind a reverse proxy, run Uvicorn with `--proxy-headers --forwarded-allow-ips=<proxy>`. Client-supplied `X-Forwarded-For` is never trusted directly.
+
+## ADR-010: Machine request signing, CAREPOINT-ED25519-V1 (2026-10-28)
+
+Builds on ADR-007: each machine holds an Ed25519 private key, and the server stores only the 32-byte public key.
+
+**Headers sent with every machine request**
+
+| Header | Value |
+|---|---|
+| `X-CarePoint-Machine` | the serial number, for example `CP-BUC-0001` |
+| `X-CarePoint-Timestamp` | Unix time in whole seconds |
+| `X-CarePoint-Nonce` | 22–64 base64url characters (at least 128 random bits), never reused |
+| `X-CarePoint-Signature` | unpadded base64url of the 64-byte Ed25519 signature |
+
+**What is signed.** UTF-8 text with lines joined by `\n` and no trailing newline:
+```
+CAREPOINT-ED25519-V1
+<METHOD>
+<raw path>[?<raw query string>]
+<serial number>
+<timestamp>
+<nonce>
+<lowercase hex SHA-256 of the raw body; of the empty string if there's no body>
+```
+The server rebuilds this from the **raw** request path and query bytes (`scope["raw_path"]`, `scope["query_string"]`). No URL normalisation happens on either side, so client and server can't disagree about what was signed.
+
+**Server checks, in this order:**
+1. **Header format.**
+2. **Clock window:** the timestamp must be within ±`MACHINE_AUTH_MAX_SKEW_SECONDS` (60 by default).
+3. **Machine:** it must exist, have a key and not be `decommissioned`. Machines in `maintenance` may still authenticate, so they can report their state.
+4. **Signature.**
+5. **Nonce:** `SET NX` in Redis with a TTL of twice the clock window. A nonce is accepted only once while its timestamp is still valid.
+
+The nonce is consumed **only after** the signature verifies. Otherwise an attacker could fill the replay store with junk, or use up a nonce they had seen before the real request arrived. A test covers this.
+
+- **Failure responses:** every failure returns the same `401 {"detail": "Invalid machine signature"}`, and the specific reason is logged on the server. If Redis (the replay store) is down, the server returns 503, failing closed.
+- **Authentication comes first:** it runs before body validation, so unauthenticated callers can't probe the payload schema.
+- **WebSocket (Phase 6):** the handshake uses the same scheme, with method `GET` and an empty body.
+
+**Provisioning** with `python -m app.scripts.provision_machine <serial>`:
+- `--public-key <b64url>`: register a key the **device generated itself**. This is preferred for real hardware, because the private key never leaves the device.
+- `--out <file>`: generate a key pair on the server (for simulators and bench setups). The private key is written to that file with mode 0600, and the command never overwrites an existing file.
+- `--rotate`: required to replace an existing key. The old key stops working immediately.
+
+**Known-answer vector.** Use it to check a firmware implementation. Ed25519 is deterministic, so this is the only valid signature. It was cross-checked with `openssl pkeyutl -sign -rawin`.
+- **Private key seed:** bytes `00 01 02 … 1f`.
+- **Public key:** `A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg`.
+- **Request:** `POST /api/v1/machine/heartbeat`, serial `CP-TEST-0001`, timestamp `1767225600`, nonce `AAAAAAAAAAAAAAAAAAAAAA`.
+- **Body:** `{"firmware_version":"1.0.0","uptime_seconds":42}`, whose SHA-256 is `44e0349bb5ee07e9fd15d4437bfd4984b8375a6d255fa45ecaebd409dcd43017`.
+- **Signature:** `3rLGXdo8ZelsHHTse4YjpmEwH21fWUHkSdCbEjHI33PrIhvHbpnU1OuCuQdnHHY25lFAcRF8wsJS2ZObgMTsCw`.
+
+**First signed endpoint:** `POST /api/v1/machine/heartbeat` with body `{firmware_version, uptime_seconds}`. It updates `last_seen_at` and `firmware_version` (migration `0004`).
