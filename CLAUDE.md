@@ -37,7 +37,10 @@ Your goal is to build a scalable, production-ready system utilizing FastAPI, Pos
 │   │   └── services/      # API clients
 │   ├── app.json
 │   └── package.json
-├── hardware_sim/          # Python daemon simulating machine telemetry
+├── hardware_sim/          # Python daemon simulating machine telemetry + kiosk SPA
+├── dashboard/             # Operator dashboard (React + TypeScript, Vite)
+├── loadtest/              # Reservation race/load tests (Locust or k6)
+├── docs/                  # ADRs, protocol spec, guides, pitch kit
 └── docker-compose.yml     # Local dev orchestration
 ```
 
@@ -84,21 +87,23 @@ Rules for working through the roadmap:
 
 ### Phase 1 — Domain model & seed data
 - [ ] Models and migration:
-  - `users`
+  - `users`, with a `role` of `customer`, `operator` or `admin`
   - `machines`: serial number, name, address, `geography(Point, 4326)` location, status, `last_seen_at`, hashed API secret
   - `products`: SKU, name, category, price in integer cents, image URL
-  - `machine_slots`: machine, slot code, product, physical quantity, capacity
+  - `machine_slots`: machine, slot code, product, physical quantity, capacity, low-stock threshold
+  - `stock_movements`: an append-only ledger of every change to a slot's quantity (restock, dispense, adjustment, telemetry correction), recording who or what made the change and why
   - `reservations`
   - `orders`
 - [ ] Pydantic schemas with strict validation: coordinate bounds, positive quantities, enum statuses.
-- [ ] Idempotent seed command (`python -m app.scripts.seed`) that creates demo machines with real coordinates in one city, a product catalogue and stock.
+- [ ] Idempotent seed command (`python -m app.scripts.seed`) that creates demo machines with real coordinates in one city, a product catalogue, stock and a demo operator account.
 - **Done when:** the migration upgrades and downgrades cleanly, `alembic check` finds nothing, and the seed runs twice without creating duplicates.
 
 ### Phase 2 — Authentication
 - [ ] User register and login with argon2 password hashes, short-lived JWT access tokens plus refresh tokens, and `GET /api/v1/me`.
 - [ ] Machine authentication with a per-machine secret, stored hashed. Machines sign requests or WebSocket handshakes with HMAC (machine ID, timestamp, nonce) and get replay protection. Write this up as an ADR.
+- [ ] Role-based access: a `require_role(...)` dependency. `/api/v1/admin/*` is restricted to `operator` and `admin`.
 - [ ] Rate limiting on auth endpoints, backed by Redis.
-- **Done when:** protected routes reject missing, expired or forged tokens, and the tests cover all of them.
+- **Done when:** protected routes reject missing, expired or forged tokens and the wrong role, and the tests cover all of them.
 
 ### Phase 3 — Discovery & catalogue API
 - [ ] `GET /api/v1/machines/nearby?lat=&lng=&radius_m=` uses PostGIS `ST_DWithin` and orders by distance. It returns distance, online status and availability counts.
@@ -110,11 +115,13 @@ Rules for working through the roadmap:
 - [ ] `POST /api/v1/reservations` places an atomic hold on N units of a slot. A Redis Lua script checks availability and writes the hold key with a 15-minute TTL in one step. The reservation row in Postgres has status `held` and an `expires_at`.
 - [ ] `DELETE /api/v1/reservations/{id}` lets the user cancel and release the hold.
 - [ ] An expiry worker, based on keyspace notifications or a sweeper as a safety net, releases expired holds and marks them `expired`. Redis and Postgres are reconciled on startup.
+- [ ] The hold length is a setting, `RESERVATION_HOLD_SECONDS`: 900 by default, about 60 in demo mode, so an expiry can be shown live.
 - [ ] Per-user limits: a maximum number of active holds and idempotency keys on create.
 - [ ] Race-condition tests:
   - N concurrent reservations for the last unit produce exactly 1 success;
   - expiry while a dispense is in flight;
   - Redis restart and reconciliation.
+- [ ] Load test (Locust or k6, in `loadtest/`): for example, 500 virtual users race for the last unit and exactly one hold succeeds, with p95 latency reported. The results are saved to `docs/benchmarks.md` for the pitch.
 - **Done when:** the race tests pass reliably over many repeated runs, and the lock design is documented as an ADR.
 
 ### Phase 5 — Checkout & pickup codes
@@ -127,7 +134,8 @@ Rules for working through the roadmap:
 - [ ] WebSocket `/api/v1/ws/machines`, authenticated with the Phase 2 handshake. Every incoming message is validated against strict Pydantic models and anything malformed or out of range is rejected.
 - [ ] Telemetry: heartbeat (online/offline from `last_seen_at`), stock counts per slot, door and temperature, and error events.
 - [ ] Commands: `verify_code` → `dispense(slot, qty)` → the machine sends `dispense_result`, which marks the reservation dispensed and captures payment. Commands are idempotent, carry IDs and are retried on reconnect.
-- [ ] Stock received from a machine is reconciled against the database and any mismatch is logged.
+- [ ] Stock received from a machine is reconciled against the database and any mismatch is logged as a `stock_movements` correction.
+- [ ] `docs/machine-protocol.md`: a versioned spec of the handshake, every message type, its JSON schema and the error codes, so a real machine (Raspberry Pi or ESP32) can replace the simulator without changes to the backend.
 - **Done when:** integration tests with a fake machine client cover the whole loop, including disconnecting halfway through a dispense.
 
 ### Phase 7 — Hardware simulator
@@ -136,21 +144,51 @@ Rules for working through the roadmap:
 - [ ] Both are added to `docker-compose.yml`, so `docker compose up` starts a working demo machine.
 - **Done when:** the CI smoke test drives the kiosk with Playwright: enter a code, see the item dispensed, and see stock go down.
 
-### Phase 8 — Mobile app foundation
+### Phase 8 — Operator dashboard
+- [ ] Admin API (`/api/v1/admin/*`, Phase 2 roles):
+  - list machines with status and last-seen time;
+  - stock per slot;
+  - list and cancel reservations;
+  - record a restock or adjustment (written to `stock_movements`);
+  - create, update and delete products;
+  - KPI summary.
+- [ ] `dashboard/`: a React and TypeScript web app (Vite), served by Compose:
+  - a map and list of machines with online/offline status and last-seen time;
+  - a slot grid with low-stock warnings;
+  - a live reservations feed;
+  - a restock form and history;
+  - product management.
+- [ ] KPI tiles for the pitch:
+  - reservations today and over 7 days;
+  - pickup rate, meaning dispensed out of held;
+  - expired holds;
+  - average time from hold to pickup;
+  - stock-outs;
+  - machine uptime.
+- [ ] Live updates over the same push channel the machine gateway uses.
+- **Done when:** Playwright checks that an operator can log in, see a machine go offline when the simulator stops, record a restock and see the stock update, and that a customer account can't access the dashboard.
+
+### Phase 9 — Mobile app foundation
 - [ ] `mobile/`: Expo with strict TypeScript, Zustand stores, an API client typed from the OpenAPI schema, and secure token storage.
 - [ ] Screens: login and register, a map of nearby machines (React Native Maps) and a machine details page with stock.
 - [ ] CI: `tsc --noEmit`, ESLint and Jest.
 
-### Phase 9 — Mobile reserve → pay → pickup flow
+### Phase 10 — Mobile reserve → pay → pickup flow
 - [ ] Reserve from the machine page, mock checkout, a reservation screen with a live 15-minute countdown and the pickup QR code and PIN, cancel, and order history.
 - [ ] Live stock and reservation status pushed to the app over WebSocket or server-sent events, so a hold or expiry shows up straight away.
 - [ ] Handling for an expired hold, a machine going offline and the app losing connection.
 
-### Phase 10 — MVP hardening & handover
+### Phase 11 — MVP hardening, handover & pitch kit
 - [ ] An end-to-end test of the whole story in CI: API, simulator and kiosk (Playwright), driven through the same API calls the app makes.
 - [ ] Structured JSON logs with request IDs, a basic metrics endpoint and a security pass with the `/security-review` skill.
 - [ ] One-command demo: `docker compose up` plus seed data. The README covers quick start and architecture.
-- [ ] **`docs/manual-testing-guide.md`**: a step-by-step guide to running the stack and trying every feature by hand. It covers the API through Swagger, the kiosk simulator, the mobile app in Expo Go, failure scenarios such as expiry and an offline machine, and how the pieces fit together.
+- [ ] **`docs/manual-testing-guide.md`**: a step-by-step guide to running the stack and trying every feature by hand. It covers the API through Swagger, the operator dashboard, the kiosk simulator, the mobile app in Expo Go, failure scenarios such as expiry and an offline machine, and how the pieces fit together.
+- [ ] **Pitch kit** (`docs/pitch/`):
+  - Demo scenario script (`python -m app.scripts.demo`). It runs simulated customers in the background, so the map, dashboard and KPIs look busy during a presentation.
+  - A recorded demo video of the full flow (Playwright video), as a backup if the live demo fails.
+  - An architecture diagram, which the README also uses.
+  - `one-pager.md` covering the problem, the solution, how it works, the technology, the load-test results, and the roadmap after the MVP.
+  - `hardware-prototype.md`: a parts list and cost estimate for one physical prototype machine (controller, dispensing mechanism, lock, enclosure), mapped onto `docs/machine-protocol.md`.
 
 ### Out of scope for the MVP
-Real payment provider, refunds UI, operator/admin dashboard and restocking UI (restock through the simulator), push notifications, multiple operators, and production cloud deployment.
+Real payment provider, refunds UI, analytics beyond the dashboard KPI tiles, managing multiple operators or companies, push notifications, production cloud deployment, and building the physical machine (the MVP specifies it and estimates its cost; building it is what the funding is for).
