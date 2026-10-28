@@ -13,6 +13,7 @@ geoalchemy2==0.16.0
 
 # Security
 argon2-cffi==23.1.0
+pyjwt==2.10.1
 
 # Cache / locking
 redis==5.2.1

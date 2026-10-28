@@ -99,10 +99,10 @@ Rules for working through the roadmap:
 - **Done when:** the migration upgrades and downgrades cleanly, `alembic check` finds nothing, and the seed runs twice without creating duplicates.
 
 ### Phase 2 — Authentication
-- [ ] User register and login with argon2 password hashes, short-lived JWT access tokens plus refresh tokens, and `GET /api/v1/me`.
+- [x] User register and login with argon2 password hashes, short-lived JWT access tokens plus rotating refresh tokens with reuse detection, and `GET /api/v1/me` (#7).
 - [ ] Machine authentication with a per-machine Ed25519 key pair: the server stores only the public key (ADR-007). Machines sign requests or WebSocket handshakes (machine ID, timestamp, nonce, body hash) and get replay protection. Write the signing scheme up as an ADR.
-- [ ] Role-based access: a `require_role(...)` dependency. `/api/v1/admin/*` is restricted to `operator` and `admin`.
-- [ ] Rate limiting on auth endpoints, backed by Redis.
+- [x] Role-based access: a `require_role(...)` dependency. `/api/v1/admin/*` is restricted to `operator` and `admin` (#7).
+- [x] Rate limiting on auth endpoints, backed by Redis (#7).
 - **Done when:** protected routes reject missing, expired or forged tokens and the wrong role, and the tests cover all of them.
 
 ### Phase 3 — Discovery & catalogue API
