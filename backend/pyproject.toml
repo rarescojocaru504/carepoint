@@ -10,6 +10,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
+"tests/conftest.py" = ["E402"]  # env must be set before importing the app
 "tests/**" = [
     "S101",  # assert is how pytest works
     "S105",  # placeholder credentials in fixtures

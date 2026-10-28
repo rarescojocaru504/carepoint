@@ -1,5 +1,9 @@
 import os
 import socket
+
+# Tests drive the sweeper and reconciliation directly; keep the app's own
+# background loops off (set before the app and its settings are imported).
+os.environ.setdefault("BACKGROUND_WORKERS_ENABLED", "false")
 from collections.abc import AsyncIterator, Iterator
 from urllib.parse import urlsplit
 
@@ -8,7 +12,7 @@ import pytest
 from alembic import command
 from fastapi.testclient import TestClient
 from redis.asyncio import Redis
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
@@ -16,6 +20,7 @@ from app.core.db import get_db
 from app.core.redis import get_redis
 from app.main import app
 from tests.helpers import alembic_config
+from tests.world import World
 
 TEST_DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL",
@@ -144,3 +149,26 @@ async def api(db_session: AsyncSession, redis: Redis) -> AsyncIterator[httpx.Asy
             yield client
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.fixture
+async def world(migrated_database_url: str, redis: Redis) -> AsyncIterator[World]:
+    """Committed rows + app wired to a session per request (see tests/world.py)."""
+    engine = create_async_engine(migrated_database_url, poolclass=NullPool)
+    w = World(async_sessionmaker(engine, expire_on_commit=False))
+
+    async def _db() -> AsyncIterator[AsyncSession]:
+        async with w.sessions() as session:
+            yield session
+
+    async def _redis() -> Redis:
+        return redis
+
+    app.dependency_overrides[get_db] = _db
+    app.dependency_overrides[get_redis] = _redis
+    try:
+        yield w
+    finally:
+        app.dependency_overrides.clear()
+        await w.cleanup()
+        await engine.dispose()

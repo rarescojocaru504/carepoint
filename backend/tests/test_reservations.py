@@ -2,8 +2,7 @@
 
 import asyncio
 import uuid
-from collections.abc import AsyncIterator, Awaitable, Callable
-from dataclasses import dataclass, field
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from typing import Any
@@ -11,17 +10,13 @@ from typing import Any
 import httpx
 import pytest
 from redis.asyncio import Redis
-from sqlalchemy import delete, func, select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.db import get_db
-from app.core.redis import get_redis
 from app.core.security import create_access_token
 from app.main import app
 from app.models import (
-    Machine,
     MachineSlot,
     MachineStatus,
     Product,
@@ -31,6 +26,7 @@ from app.models import (
 )
 from app.services import hold_store
 from tests.factories import make_machine, make_product, make_reservation, make_slot, make_user
+from tests.world import World
 
 pytestmark = pytest.mark.integration
 
@@ -343,72 +339,8 @@ async def test_failed_db_insert_releases_redis_hold(
 
 # --- races under real concurrency ----------------------------------------------
 #
-# These use committed rows and one database connection per request (like
-# production), because a rolled-back shared session cannot serve concurrent
-# requests. Everything created is deleted afterwards.
-
-
-@dataclass
-class World:
-    sessions: async_sessionmaker[AsyncSession]
-    created: list[Any] = field(default_factory=list)
-
-    async def add(self, *objects: Any) -> None:
-        async with self.sessions() as session:
-            session.add_all(objects)
-            await session.commit()
-        self.created.extend(objects)
-
-
-@pytest.fixture
-async def world(migrated_database_url: str, redis: Redis) -> AsyncIterator[World]:
-    engine = create_async_engine(migrated_database_url, poolclass=NullPool)
-    w = World(async_sessionmaker(engine, expire_on_commit=False))
-
-    async def _db() -> AsyncIterator[AsyncSession]:
-        async with w.sessions() as session:
-            yield session
-
-    async def _redis() -> Redis:
-        return redis
-
-    app.dependency_overrides[get_db] = _db
-    app.dependency_overrides[get_redis] = _redis
-    try:
-        yield w
-    finally:
-        app.dependency_overrides.clear()
-        async with w.sessions() as session:
-            slot_ids = [o.id for o in w.created if isinstance(o, MachineSlot)]
-            user_ids = [o.id for o in w.created if isinstance(o, User)]
-            await session.execute(delete(Reservation).where(Reservation.slot_id.in_(slot_ids)))
-            await session.execute(delete(Reservation).where(Reservation.user_id.in_(user_ids)))
-            for model in (MachineSlot, Machine, Product, User):
-                ids = [o.id for o in w.created if isinstance(o, model)]
-                await session.execute(delete(model).where(model.id.in_(ids)))
-            await session.commit()
-        await engine.dispose()
-
-
-async def _world_slot(world: World, quantity: int) -> MachineSlot:
-    tag = uuid.uuid4().hex[:8].upper()
-    product = Product(sku=f"RACE-{tag}", name="Race item", category="hygiene",
-                      price_cents=500, currency="RON")  # fmt: skip
-    machine = Machine(
-        serial_number=f"CP-RACE-{tag}", name="Race", address="x", location="POINT(-30 10)"
-    )
-    await world.add(product, machine)
-    slot = MachineSlot(machine_id=machine.id, product_id=product.id, slot_code="A1",
-                       quantity=quantity, capacity=10)  # fmt: skip
-    await world.add(slot)
-    return slot
-
-
-async def _world_users(world: World, n: int) -> list[User]:
-    users = [User(email=f"race-{uuid.uuid4().hex[:12]}@example.com", password_hash="!",
-                  full_name="Racer") for _ in range(n)]  # fmt: skip
-    await world.add(*users)
-    return users
+# These use the committed `world` fixture (tests/world.py): one database
+# connection per request, like production.
 
 
 async def _held_count(world: World, slot: MachineSlot) -> int:
@@ -430,8 +362,8 @@ async def _gather(*calls: Callable[[], Awaitable[httpx.Response]]) -> list[int]:
 @pytest.mark.parametrize("round_", range(20))
 async def test_race_for_the_last_unit(world: World, redis: Redis, round_: int) -> None:
     """40 customers press "reserve" on the last unit at the same moment."""
-    slot = await _world_slot(world, quantity=1)
-    users = await _world_users(world, 40)
+    slot = await world.slot(quantity=1)
+    users = await world.users(40)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
         statuses = await _gather(*(partial(_reserve, c, u, slot.id) for u in users))
     assert statuses.count(201) == 1
@@ -441,8 +373,8 @@ async def test_race_for_the_last_unit(world: World, redis: Redis, round_: int) -
 
 
 async def test_race_many_units_many_customers(world: World, redis: Redis) -> None:
-    slot = await _world_slot(world, quantity=7)
-    users = await _world_users(world, 30)
+    slot = await world.slot(quantity=7)
+    users = await world.users(30)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
         statuses = await _gather(*(partial(_reserve, c, u, slot.id) for u in users))
     assert statuses.count(201) == 7
@@ -453,8 +385,8 @@ async def test_race_many_units_many_customers(world: World, redis: Redis) -> Non
 
 async def test_race_same_user_double_submit(world: World, redis: Redis) -> None:
     """A double-tapped button (same idempotency key) creates one reservation."""
-    slot = await _world_slot(world, quantity=5)
-    (user,) = await _world_users(world, 1)
+    slot = await world.slot(quantity=5)
+    (user,) = await world.users(1)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
         responses = await asyncio.gather(
             *(_reserve(c, user, slot.id, idempotency_key="double-tap-01") for _ in range(8))
@@ -466,8 +398,8 @@ async def test_race_same_user_double_submit(world: World, redis: Redis) -> None:
 
 
 async def test_race_same_user_cannot_exceed_limit(world: World) -> None:
-    slot = await _world_slot(world, quantity=10)
-    (user,) = await _world_users(world, 1)
+    slot = await world.slot(quantity=10)
+    (user,) = await world.users(1)
     limit = get_settings().max_active_reservations_per_user
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
         statuses = await _gather(*(partial(_reserve, c, user, slot.id) for _ in range(10)))
@@ -477,9 +409,9 @@ async def test_race_same_user_cannot_exceed_limit(world: World) -> None:
 
 async def test_race_cancel_and_reserve(world: World, redis: Redis) -> None:
     """Cancels and new reservations interleaving never oversell or lose a unit."""
-    slot = await _world_slot(world, quantity=3)
-    holders = await _world_users(world, 3)
-    newcomers = await _world_users(world, 20)
+    slot = await world.slot(quantity=3)
+    holders = await world.users(3)
+    newcomers = await world.users(20)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
         ids = [(await _reserve(c, u, slot.id)).json()["id"] for u in holders]
         calls: list[Callable[[], Awaitable[httpx.Response]]] = [

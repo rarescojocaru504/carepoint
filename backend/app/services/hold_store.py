@@ -98,6 +98,59 @@ return {tonumber(qty), held, math.max(tonumber(qty) - held, 0)}
 """
 )
 
+# Returns {qty or -1, id1, units1, expiry1, id2, ...} after purging expired holds.
+_STATE = (
+    _PRELUDE
+    + """
+local qty = redis.call('GET', KEYS[1])
+local out = {tonumber(qty) or -1}
+local entries = redis.call('ZRANGE', KEYS[2], 0, -1, 'WITHSCORES')
+for i = 1, #entries, 2 do
+    out[#out + 1] = entries[i]
+    out[#out + 1] = tonumber(redis.call('HGET', KEYS[3], entries[i])) or 0
+    out[#out + 1] = tonumber(entries[i + 1])
+end
+return out
+"""
+)
+
+# ARGV: expected_qty, new_qty, n_remove, remove ids..., then (id, units, expiry) triples.
+# Applies a diff, so holds granted concurrently are never dropped. The quantity
+# is compare-and-set: if it changed since the caller read it (a dispense or
+# restock landed meanwhile), it is left alone and fixed on the next pass.
+# Returns {removed, added, qty_updated}.
+_RECONCILE = """
+local removed, added = 0, 0
+local n_remove = tonumber(ARGV[3])
+for i = 4, 3 + n_remove do
+    removed = removed + redis.call('ZREM', KEYS[2], ARGV[i])
+    redis.call('HDEL', KEYS[3], ARGV[i])
+end
+for i = 4 + n_remove, #ARGV, 3 do
+    if redis.call('ZADD', KEYS[2], 'NX', ARGV[i + 2], ARGV[i]) == 1 then
+        redis.call('HSET', KEYS[3], ARGV[i], ARGV[i + 1])
+        added = added + 1
+    end
+end
+local qty_updated = 0
+if ARGV[1] ~= ARGV[2] and redis.call('GET', KEYS[1]) == ARGV[1] then
+    redis.call('SET', KEYS[1], ARGV[2])
+    qty_updated = 1
+end
+return {removed, added, qty_updated}
+"""
+
+# ARGV: reservation_id, units. A committed dispense: drop the hold and the
+# physical units together, so availability never dips or spikes in between.
+_DISPENSE = """
+redis.call('ZREM', KEYS[2], ARGV[1])
+redis.call('HDEL', KEYS[3], ARGV[1])
+if redis.call('EXISTS', KEYS[1]) == 1 then
+    return redis.call('DECRBY', KEYS[1], ARGV[2])
+end
+return nil
+"""
+
 
 @dataclass(frozen=True)
 class ExistingHold:
@@ -195,3 +248,53 @@ async def apply_stock_delta(redis: Redis, slot_id: uuid.UUID, delta: int) -> Non
 async def snapshot(redis: Redis, slot_id: uuid.UUID) -> SlotSnapshot:
     physical, held, available = (int(x) for x in await _eval(redis, _SNAPSHOT, slot_id))
     return SlotSnapshot(physical >= 0, max(physical, 0), held, available)
+
+
+@dataclass(frozen=True)
+class SlotHolds:
+    """Redis's full view of a slot (expired holds already purged)."""
+
+    initialised: bool
+    physical: int
+    holds: dict[uuid.UUID, ExistingHold]
+
+
+@dataclass(frozen=True)
+class ReconcileResult:
+    removed: int
+    added: int
+    quantity_updated: bool
+
+
+async def read_state(redis: Redis, slot_id: uuid.UUID) -> SlotHolds:
+    raw = await _eval(redis, _STATE, slot_id)
+    holds: dict[uuid.UUID, ExistingHold] = {}
+    for i in range(1, len(raw), 3):
+        rid = uuid.UUID(raw[i].decode() if isinstance(raw[i], bytes) else raw[i])
+        holds[rid] = ExistingHold(rid, int(raw[i + 1]), _ms_to_datetime(int(raw[i + 2])))
+    physical = int(raw[0])
+    return SlotHolds(physical >= 0, max(physical, 0), holds)
+
+
+async def apply_reconciliation(
+    redis: Redis,
+    slot_id: uuid.UUID,
+    *,
+    expected_quantity: int,
+    new_quantity: int,
+    remove: Sequence[uuid.UUID],
+    add: Sequence[ExistingHold],
+) -> ReconcileResult:
+    args: list[str | int] = [expected_quantity, new_quantity, len(remove)]
+    args += [str(rid) for rid in remove]
+    for hold in add:
+        args += [str(hold.reservation_id), hold.units, _datetime_to_ms(hold.expires_at)]
+    removed, added, updated = (int(x) for x in await _eval(redis, _RECONCILE, slot_id, *args))
+    return ReconcileResult(removed, added, bool(updated))
+
+
+async def complete_dispense(
+    redis: Redis, slot_id: uuid.UUID, reservation_id: uuid.UUID, units: int
+) -> None:
+    """Mirror a *committed* dispense: release the hold and the physical units."""
+    await _eval(redis, _DISPENSE, slot_id, str(reservation_id), units)
