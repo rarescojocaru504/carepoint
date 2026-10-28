@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -9,8 +10,10 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
+    environment: Literal["development", "test", "production"] = "development"
     project_name: str = "CarePoint API"
     api_v1_prefix: str = "/api/v1"
+    currency: str = Field(default="RON", pattern=r"^[A-Z]{3}$")
 
     database_url: str = Field(
         default="postgresql+asyncpg://carepoint:carepoint@localhost:5432/carepoint",

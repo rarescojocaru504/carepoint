@@ -102,6 +102,13 @@ jobs:
           echo
           curl --fail --silent --show-error http://localhost:8000/ready
           echo
+      - name: Seed demo data twice (second run must create nothing)
+        run: |
+          docker compose exec -T backend python -m app.scripts.seed
+          docker compose exec -T backend python -m app.scripts.seed | tee second-run.txt
+          if grep -E "created +[1-9]" second-run.txt; then
+            echo "::error::seed is not idempotent"; exit 1
+          fi
       - name: pytest inside backend container
         run: docker compose exec -T -e REQUIRE_SERVICES=1 backend pytest -p no:cacheprovider -q
       - name: Dump logs on failure

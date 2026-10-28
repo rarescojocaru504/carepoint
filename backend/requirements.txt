@@ -11,6 +11,9 @@ asyncpg==0.30.0
 alembic==1.14.0
 geoalchemy2==0.16.0
 
+# Security
+argon2-cffi==23.1.0
+
 # Cache / locking
 redis==5.2.1
 
