@@ -1,0 +1,262 @@
+"""Reservations: hold stock for a customer for a limited time (ADR-012)."""
+
+import logging
+import uuid
+from dataclasses import dataclass
+from datetime import UTC, datetime
+
+from redis.asyncio import Redis
+from redis.exceptions import RedisError
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import get_settings
+from app.models import (
+    Machine,
+    MachineSlot,
+    MachineStatus,
+    Product,
+    Reservation,
+    ReservationStatus,
+    User,
+)
+from app.schemas.reservation import ReservationCreate
+from app.services import hold_store
+from app.services.availability import ACTIVE_HOLD_STATUSES
+
+logger = logging.getLogger(__name__)
+
+
+class ReservationError(Exception):
+    """Base class; messages are safe to show to clients."""
+
+
+class SlotNotFoundError(ReservationError):
+    pass
+
+
+class SlotNotSellableError(ReservationError):
+    """The slot exists but cannot be reserved now (machine or product unavailable)."""
+
+
+class InsufficientStockError(ReservationError):
+    def __init__(self, available: int) -> None:
+        super().__init__(f"only {available} available")
+        self.available = available
+
+
+class TooManyActiveReservationsError(ReservationError):
+    def __init__(self, limit: int) -> None:
+        super().__init__(f"at most {limit} active reservations")
+        self.limit = limit
+
+
+class IdempotencyConflictError(ReservationError):
+    """The idempotency key was already used for a different request."""
+
+
+class ReservationNotFoundError(ReservationError):
+    pass
+
+
+class ReservationNotCancellableError(ReservationError):
+    def __init__(self, status: ReservationStatus) -> None:
+        super().__init__(f"reservation is {status.value}")
+        self.status = status
+
+
+@dataclass(frozen=True)
+class ReservationView:
+    reservation: Reservation
+    machine_id: uuid.UUID
+    product_sku: str
+    product_name: str
+    currency: str
+
+
+def effective_status(reservation: Reservation, now: datetime | None = None) -> ReservationStatus:
+    """A hold past its expiry is expired, even before the sweeper records it."""
+    now = now or datetime.now(UTC)
+    if reservation.status in ACTIVE_HOLD_STATUSES and reservation.expires_at <= now:
+        return ReservationStatus.EXPIRED
+    return reservation.status
+
+
+def _user_lock_key(user_id: uuid.UUID) -> int:
+    # pg_advisory_xact_lock takes a signed 64-bit key.
+    return int.from_bytes(user_id.bytes[:8], "big", signed=True)
+
+
+async def load_slot_state(session: AsyncSession, slot_id: uuid.UUID) -> hold_store.SlotState:
+    """Postgres's view of a slot, used to (re)build its Redis state."""
+    quantity = await session.scalar(select(MachineSlot.quantity).where(MachineSlot.id == slot_id))
+    rows = await session.execute(
+        select(Reservation.id, Reservation.quantity, Reservation.expires_at).where(
+            Reservation.slot_id == slot_id,
+            Reservation.status.in_(ACTIVE_HOLD_STATUSES),
+            Reservation.expires_at > func.now(),
+        )
+    )
+    return hold_store.SlotState(
+        physical_quantity=quantity or 0,
+        holds=[hold_store.ExistingHold(rid, units, expires) for rid, units, expires in rows],
+    )
+
+
+async def _view(session: AsyncSession, reservation: Reservation) -> ReservationView:
+    machine_id, sku, name, currency = (
+        await session.execute(
+            select(MachineSlot.machine_id, Product.sku, Product.name, Product.currency)
+            .join(Product, Product.id == MachineSlot.product_id)
+            .where(MachineSlot.id == reservation.slot_id)
+        )
+    ).one()
+    return ReservationView(reservation, machine_id, sku, name, currency)
+
+
+async def create_reservation(
+    session: AsyncSession, redis: Redis, user: User, data: ReservationCreate
+) -> tuple[ReservationView, bool]:
+    """Hold stock for `user`. Returns (reservation, created).
+
+    `created` is False when an idempotent retry returned the existing reservation.
+    """
+    settings = get_settings()
+
+    # Serialise this user's reservation requests: the active-hold limit and the
+    # idempotency check below are then race-free. Released at commit/rollback.
+    await session.execute(select(func.pg_advisory_xact_lock(_user_lock_key(user.id))))
+
+    if data.idempotency_key is not None:
+        existing = await session.scalar(
+            select(Reservation).where(
+                Reservation.user_id == user.id,
+                Reservation.idempotency_key == data.idempotency_key,
+            )
+        )
+        if existing is not None:
+            if existing.slot_id != data.slot_id or existing.quantity != data.quantity:
+                raise IdempotencyConflictError("idempotency key reused with different parameters")
+            return await _view(session, existing), False
+
+    row = (
+        await session.execute(
+            select(MachineSlot, Machine.status, Product)
+            .join(Machine, Machine.id == MachineSlot.machine_id)
+            .outerjoin(Product, Product.id == MachineSlot.product_id)
+            .where(MachineSlot.id == data.slot_id)
+        )
+    ).one_or_none()
+    if row is None:
+        raise SlotNotFoundError("slot not found")
+    slot, machine_status, product = row
+    if machine_status is MachineStatus.DECOMMISSIONED:
+        raise SlotNotFoundError("slot not found")
+    if product is None or not product.is_active or machine_status is not MachineStatus.ACTIVE:
+        raise SlotNotSellableError("this item cannot be reserved right now")
+
+    active = await session.scalar(
+        select(func.count())
+        .select_from(Reservation)
+        .where(
+            Reservation.user_id == user.id,
+            Reservation.status.in_(ACTIVE_HOLD_STATUSES),
+            Reservation.expires_at > func.now(),
+        )
+    )
+    if (active or 0) >= settings.max_active_reservations_per_user:
+        raise TooManyActiveReservationsError(settings.max_active_reservations_per_user)
+
+    reservation_id = uuid.uuid4()
+    result = await hold_store.reserve(
+        redis,
+        slot.id,
+        reservation_id,
+        data.quantity,
+        settings.reservation_hold_seconds,
+        lambda slot_id: load_slot_state(session, slot_id),
+    )
+    if not result.granted or result.expires_at is None:
+        raise InsufficientStockError(result.available)
+
+    reservation = Reservation(
+        id=reservation_id,
+        user_id=user.id,
+        slot_id=slot.id,
+        quantity=data.quantity,
+        unit_price_cents=product.price_cents,
+        status=ReservationStatus.HELD,
+        expires_at=result.expires_at,
+        idempotency_key=data.idempotency_key,
+    )
+    session.add(reservation)
+    try:
+        await session.commit()
+    except BaseException:
+        # Redis granted the hold but Postgres did not record it: give it back.
+        await session.rollback()
+        await _release_quietly(redis, slot.id, reservation_id)
+        raise
+    await session.refresh(reservation)  # load server-generated timestamps
+    view = ReservationView(
+        reservation, slot.machine_id, product.sku, product.name, product.currency
+    )
+    return view, True
+
+
+async def _release_quietly(redis: Redis, slot_id: uuid.UUID, reservation_id: uuid.UUID) -> None:
+    """Best effort: if Redis is unreachable the hold still lapses at its expiry."""
+    try:
+        await hold_store.release(redis, slot_id, reservation_id)
+    except RedisError:
+        logger.exception("Could not release hold %s; it will lapse at expiry", reservation_id)
+
+
+async def get_reservation(
+    session: AsyncSession, user: User, reservation_id: uuid.UUID
+) -> ReservationView:
+    """A user's own reservation. Someone else's is reported as not found."""
+    reservation = await session.scalar(
+        select(Reservation).where(Reservation.id == reservation_id, Reservation.user_id == user.id)
+    )
+    if reservation is None:
+        raise ReservationNotFoundError("reservation not found")
+    return await _view(session, reservation)
+
+
+async def list_reservations(
+    session: AsyncSession, user: User, *, limit: int = 20
+) -> list[ReservationView]:
+    reservations = await session.scalars(
+        select(Reservation)
+        .where(Reservation.user_id == user.id)
+        .order_by(Reservation.created_at.desc(), Reservation.id)
+        .limit(limit)
+    )
+    return [await _view(session, r) for r in reservations]
+
+
+async def cancel_reservation(
+    session: AsyncSession, redis: Redis, user: User, reservation_id: uuid.UUID
+) -> None:
+    """Cancel a held reservation and release its stock. Idempotent.
+
+    Postgres is updated first, then Redis: if the Redis release fails, the hold
+    keeps the unit locked only until its expiry (safe), never the reverse.
+    """
+    reservation = await session.scalar(
+        select(Reservation)
+        .where(Reservation.id == reservation_id, Reservation.user_id == user.id)
+        .with_for_update()
+    )
+    if reservation is None:
+        raise ReservationNotFoundError("reservation not found")
+    if reservation.status is ReservationStatus.CANCELLED:
+        return
+    status = effective_status(reservation)
+    if status is not ReservationStatus.HELD:
+        raise ReservationNotCancellableError(status)
+    reservation.status = ReservationStatus.CANCELLED
+    slot_id = reservation.slot_id
+    await session.commit()
+    await _release_quietly(redis, slot_id, reservation_id)
