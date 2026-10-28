@@ -201,3 +201,54 @@ The nonce is consumed **only after** the signature verifies. Otherwise an attack
   - Results are ordered by `ST_Distance` with the machine id as a tie-breaker.
 - **Input limits:** `lat` must be in [-90, 90] and `lng` in [-180, 180], with NaN and inf rejected; `radius_m` must be 1–20,000; `limit` must be 1–50.
 - **Responses never include internal fields:** serial numbers, public keys, firmware versions and slot capacity are left out.
+
+## ADR-012: Reservation holds in Redis, the anti-oversell gate (2026-10-28)
+
+**Problem.** Many customers may tap "reserve" on the last unit at the same moment. Exactly one may win, and a unit must never stay locked after its hold lapses.
+
+**Why not one key per hold with a TTL?** It looks natural: `SET hold:<id> EX 900`. But when Redis expires that key, nothing gives the unit back to the "available" count. The design would need keyspace notifications, which are fire-and-forget pub/sub messages lost on any disconnect. A single lost message leaks a unit until a human notices.
+
+**Decision.** Each slot keeps its holds in a sorted set scored by expiry. All keys share one hash tag, so they stay on one shard if Redis Cluster is used later:
+
+| Key | Type | Contents |
+|---|---|---|
+| `cp:slot:{<slot_id>}:qty` | string | physical units, mirrored from Postgres |
+| `cp:slot:{<slot_id>}:holds` | sorted set | reservation id → expiry in epoch milliseconds |
+| `cp:slot:{<slot_id>}:holdqty` | hash | reservation id → units held |
+
+Every operation is **one Lua script**, so Redis runs it atomically. Each script first removes holds whose expiry is at or before **Redis's own clock** (`TIME`), so client clock skew doesn't matter. The reserve script then works out `available = qty − Σ held` and either writes the hold or refuses it.
+
+**Consequences:**
+- **Expiry is part of the arithmetic.** An expired hold can't keep a unit locked, even if every background job is dead. No TTL callbacks or keyspace notifications are needed for correctness.
+- **Concurrency.** Requests for the same slot serialise inside Redis, and exactly one of the requests competing for the last unit succeeds. Different slots don't contend.
+- **Idempotency in Redis.** Reserving the same reservation id twice returns the same hold.
+
+**Source of truth.** Postgres holds the durable record (`reservations` rows); Redis is the fast, atomic gate.
+- **First use, or Redis flushed or restarted without persistence:** the reserve script reports *needs init*. The service rebuilds the slot from Postgres (physical quantity plus unexpired `held`/`paid` reservations) using a script that initialises **only if the keys are still missing**, so a concurrent rebuild can't overwrite holds granted in the meantime. It then retries.
+- **Committed stock changes** (restocks, adjustments) are mirrored with `apply_stock_delta`, which is a no-op when the slot isn't initialised yet, because the next rebuild reads the new quantity.
+
+**Write order, chosen so every failure is safe:**
+- **Reserve:** take the Redis hold first, then insert the Postgres row. If the insert fails, the hold is released. If the process crashes between the two steps, the orphan hold expires by itself, so the unit is at worst unavailable for one hold period. The reverse order could leave a Postgres hold that Redis doesn't know about, which could oversell.
+- **Cancel (and, later, dispense and expiry):** update Postgres first, then release in Redis. If the release fails, the unit stays locked only until the hold's expiry.
+
+**Per-user rules:**
+- Each user's create requests are serialised with a Postgres advisory transaction lock, so the active-hold limit (`MAX_ACTIVE_RESERVATIONS_PER_USER`, 3) and idempotency are race-free.
+- `idempotency_key` is unique per user. A retry with the same key and parameters returns the original reservation (`200`); the same key with different parameters returns `409 idempotency_conflict`.
+- New reservations are rate-limited per user (`RATE_LIMIT_RESERVATION_USER`, 20/min) against hoarding bots.
+
+**Settings and API:**
+- **Hold length:** `RESERVATION_HOLD_SECONDS`, 900 by default. Set it to about 60 for live demos.
+- **Price:** the unit price is copied onto the reservation when it's created, so a later price change doesn't affect it.
+- **Status:** a hold past its expiry **reads** as `expired` in the API even before the sweeper (Phase 4, part 2) records it.
+- **Error codes:** errors return a stable `code`: `insufficient_stock` (with `available`), `not_sellable`, `too_many_active` (with `limit`), `idempotency_conflict`, `not_cancellable` (with `status`).
+- **Privacy:** someone else's reservation returns 404, not 403.
+
+**Evidence:**
+- Tests against real Redis and Postgres:
+  - 20 rounds of 40 concurrent HTTP customers racing for the last unit, with exactly one winner each round;
+  - 30 customers for 7 units;
+  - a double-tapped button;
+  - one user trying to exceed the limit concurrently;
+  - cancels interleaved with new reservations;
+  - 100 coroutines for 5 units, over 10 rounds.
+- **Mutation check:** replacing the atomic script with a check-then-act version made 33 race tests fail, including one run with 19 holds for 3 units.

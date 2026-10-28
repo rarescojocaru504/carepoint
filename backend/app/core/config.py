@@ -47,6 +47,13 @@ class Settings(BaseSettings):
     # A machine counts as online if it was heard from within this window.
     machine_online_window_seconds: int = Field(default=90, ge=10, le=3600)
 
+    # --- reservations (ADR-012) --------------------------------------------------
+    # How long a reservation holds stock. 900 s in production; set ~60 for live
+    # demos so an expiry can be shown on stage.
+    reservation_hold_seconds: int = Field(default=900, ge=30, le=3600)
+    max_active_reservations_per_user: int = Field(default=3, ge=1, le=20)
+    rate_limit_reservation_user: RateLimitSpec = "20/60"
+
     # Machine request signing (ADR-010): accepted clock skew, either direction.
     machine_auth_max_skew_seconds: int = Field(default=60, ge=5, le=600)
 
