@@ -1,0 +1,13 @@
+# Keep Unix line endings for files that run inside Linux containers, even when
+# the repo is cloned on Windows with core.autocrlf=true. A CRLF in a shell
+# script makes Postgres's init script fail with "bad interpreter".
+* text=auto
+*.sh text eol=lf
+*.py text eol=lf
+*.mako text eol=lf
+*.ini text eol=lf
+*.toml text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+Dockerfile text eol=lf
+.dockerignore text eol=lf
