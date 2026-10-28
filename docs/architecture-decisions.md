@@ -181,3 +181,23 @@ The nonce is consumed **only after** the signature verifies. Otherwise an attack
 - **Signature:** `3rLGXdo8ZelsHHTse4YjpmEwH21fWUHkSdCbEjHI33PrIhvHbpnU1OuCuQdnHHY25lFAcRF8wsJS2ZObgMTsCw`.
 
 **First signed endpoint:** `POST /api/v1/machine/heartbeat` with body `{firmware_version, uptime_seconds}`. It updates `last_seen_at` and `firmware_version` (migration `0004`).
+
+## ADR-011: Discovery API and the definition of "available" (2026-10-28)
+
+- **Endpoints.** All are public, so people can browse the map without an account. They share a generous per-IP rate limit (`RATE_LIMIT_DISCOVERY_IP`, 300/min), which **fails open** because the endpoints are read-only. A Redis outage therefore doesn't take the map down. Auth endpoints still fail closed (ADR-009).
+  - `GET /api/v1/machines/nearby?lat&lng&radius_m&limit`: machines within the radius, nearest first, with distance, online flag and availability totals.
+  - `GET /api/v1/machines/{id}`: stocked slots with the available quantity and a low-stock flag. Empty slots and inactive products are hidden.
+  - `GET /api/v1/products?category=`: the active catalogue.
+  - `GET /api/v1/products/{sku}/nearby?lat&lng&radius_m&limit`: "where can I get this nearest to me?". It lists only machines that have units available, sums all slots holding that SKU, and returns the **fullest slot** to reserve from.
+- **One definition of availability** (`app/services/availability.py`), used by every read path:
+  `available = max(quantity − active holds, 0)`.
+  - An active hold is a `held` or `paid` reservation whose `expires_at` is in the future. A hold stops counting **the moment it expires**, even before Phase 4's expiry worker marks it `expired`.
+  - Machines that aren't `active` (for example in maintenance) and inactive products always show 0 available. They are still listed with their status, so the app can show them greyed out.
+  - Phase 4's Redis hold logic must produce the same numbers.
+- **Online:** a machine is online when `last_seen_at` is within `MACHINE_ONLINE_WINDOW_SECONDS` (90 s). Decommissioned machines never appear and return 404.
+- **Geo:**
+  - The query point is built with `ST_SetSRID(ST_MakePoint(lng, lat), 4326)::geography` from **bound float parameters**, never from formatted SQL.
+  - `ST_DWithin` on `geography` filters by true spheroid distance in metres and uses the GiST index `ix_machines_location` (confirmed with `EXPLAIN`).
+  - Results are ordered by `ST_Distance` with the machine id as a tie-breaker.
+- **Input limits:** `lat` must be in [-90, 90] and `lng` in [-180, 180], with NaN and inf rejected; `radius_m` must be 1–20,000; `limit` must be 1–50.
+- **Responses never include internal fields:** serial numbers, public keys, firmware versions and slot capacity are left out.
