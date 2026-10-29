@@ -134,6 +134,24 @@ jobs:
       - name: Type check (strict) and build
         run: npm run build
 
+  dashboard:
+    name: Dashboard (TypeScript)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - run: npm ci
+      - name: Type check (strict) and build
+        run: npm run build
+
   docker:
     name: Docker Compose smoke test
     timeout-minutes: 30
@@ -178,11 +196,14 @@ jobs:
       - name: Drive the kiosk in a browser (code on the keypad, item dispensed, stock down)
         working-directory: e2e
         run: node kiosk-smoke.mjs
-      - name: Upload kiosk screenshots
+      - name: Drive the operator dashboard (customer refused, restock, live feed, offline on simulator stop)
+        working-directory: e2e
+        run: node dashboard-smoke.mjs
+      - name: Upload screenshots (kiosk and dashboard)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: kiosk-screenshots
+          name: screenshots
           path: e2e/artifacts/
           if-no-files-found: ignore
       - name: pytest inside backend container
@@ -197,7 +218,7 @@ jobs:
   automerge:
     name: Auto-merge
     timeout-minutes: 5
-    needs: [lint, test, simulator, kiosk, docker]
+    needs: [lint, test, simulator, kiosk, dashboard, docker]
     # Same-repo PRs only (never forks), not drafts, and not labelled do-not-merge.
     if: >-
       github.event_name == 'pull_request' &&

@@ -117,13 +117,9 @@ class KpiSummary(BaseModel):
     machines_online: int
     machines_total: int
     uptime_24h: float | None = Field(
-        description="average share of the last 24 h machines were connected"
+        description="average share of the last 24 h (or since first connected, if later) "
+        "that machines were connected; null before any machine has connected"
     )
-
-
-class ProductDeleteConflict(BaseModel):
-    detail: str
-    slots: int
 
 
 _Note = Annotated[str, Field(min_length=1, max_length=500)]
