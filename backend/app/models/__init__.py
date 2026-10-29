@@ -6,6 +6,8 @@ when Alembic (see `alembic/env.py`) imports this package for autogenerate.
 
 from app.models.auth import RefreshToken
 from app.models.enums import (
+    MachineErrorCode,
+    MachineEventKind,
     MachineStatus,
     PaymentStatus,
     ProductCategory,
@@ -14,13 +16,16 @@ from app.models.enums import (
     UserRole,
 )
 from app.models.inventory import StockMovement
-from app.models.machine import Machine, MachineSlot
+from app.models.machine import Machine, MachineEvent, MachineSlot
 from app.models.product import Product
 from app.models.reservation import Order, Reservation
 from app.models.user import User
 
 __all__ = [
     "Machine",
+    "MachineErrorCode",
+    "MachineEvent",
+    "MachineEventKind",
     "MachineSlot",
     "MachineStatus",
     "Order",

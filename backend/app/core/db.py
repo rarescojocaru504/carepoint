@@ -47,3 +47,12 @@ async def get_db() -> AsyncIterator[AsyncSession]:
     """FastAPI dependency yielding one AsyncSession per request."""
     async with AsyncSessionLocal() as session:
         yield session
+
+
+def get_session_factory() -> async_sessionmaker[AsyncSession]:
+    """FastAPI dependency for handlers that open their own short sessions.
+
+    The machine gateway keeps a WebSocket open for hours; it opens a session
+    per message instead of holding one for the connection's lifetime.
+    """
+    return AsyncSessionLocal

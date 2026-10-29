@@ -26,7 +26,9 @@ import logging
 import re
 import secrets
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Any
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
@@ -47,6 +49,7 @@ HEADER_MACHINE = "X-CarePoint-Machine"
 HEADER_TIMESTAMP = "X-CarePoint-Timestamp"
 HEADER_NONCE = "X-CarePoint-Nonce"
 HEADER_SIGNATURE = "X-CarePoint-Signature"
+SIGNED_HEADERS = (HEADER_MACHINE, HEADER_TIMESTAMP, HEADER_NONCE, HEADER_SIGNATURE)
 
 _SERIAL_RE = re.compile(r"^[A-Z0-9-]{4,32}$")
 _TIMESTAMP_RE = re.compile(r"^[0-9]{1,12}$")
@@ -96,6 +99,17 @@ def _b64url_decode(value: str) -> bytes:
 
 def _b64url_encode(value: bytes) -> str:
     return base64.urlsafe_b64encode(value).rstrip(b"=").decode()
+
+
+def signed_path(scope: Mapping[str, Any]) -> str:
+    """The path and query exactly as received (ASGI `raw_path`, `query_string`).
+
+    Signing over the raw bytes means no normalisation difference between client
+    and server can break or bypass verification.
+    """
+    raw_path: bytes = scope.get("raw_path") or scope["path"].encode()
+    query: bytes = scope.get("query_string", b"")
+    return raw_path.decode("latin-1") + ("?" + query.decode("latin-1") if query else "")
 
 
 def parse_signed_headers(headers: dict[str, str | None]) -> SignedHeaders:

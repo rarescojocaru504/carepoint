@@ -76,6 +76,25 @@ class Settings(BaseSettings):
     # Machine request signing (ADR-010): accepted clock skew, either direction.
     machine_auth_max_skew_seconds: int = Field(default=60, ge=5, le=600)
 
+    # --- machine gateway (ADR-017) ------------------------------------------------
+    # Told to machines in `welcome`; well inside the online window, so a machine
+    # stays online across one lost heartbeat. A connection silent for the whole
+    # online window is closed.
+    machine_heartbeat_interval_seconds: int = Field(default=30, ge=5, le=600)
+    # Messages per connection per window; a flood closes the connection.
+    machine_ws_rate_limit: RateLimitSpec = "30/10"
+    # Malformed or rejected messages tolerated per connection before it is closed.
+    machine_ws_max_invalid_messages: int = Field(default=10, ge=1, le=1000)
+
+    @model_validator(mode="after")
+    def _heartbeat_inside_online_window(self) -> Self:
+        if self.machine_heartbeat_interval_seconds * 2 > self.machine_online_window_seconds:
+            raise ValueError(
+                "MACHINE_HEARTBEAT_INTERVAL_SECONDS must be at most half of "
+                "MACHINE_ONLINE_WINDOW_SECONDS"
+            )
+        return self
+
     @model_validator(mode="after")
     def _production_requires_real_secrets(self) -> Self:
         if self.environment == "production":
