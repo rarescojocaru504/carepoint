@@ -54,7 +54,7 @@ async def expire_due_reservations(
             # (READ COMMITTED), so a just-dispensed reservation is never expired.
             .where(Reservation.id == due.c.id, Reservation.status.in_(ACTIVE_HOLD_STATUSES))
             .values(status=ReservationStatus.EXPIRED)
-            .returning(Reservation.id, Reservation.slot_id)
+            .returning(Reservation.id, Reservation.slot_id, Reservation.user_id)
             .execution_options(synchronize_session=False)
         )
     ).all()
@@ -65,7 +65,7 @@ async def expire_due_reservations(
         await session.execute(
             update(DispenseCommand)
             .where(
-                DispenseCommand.reservation_id.in_([rid for rid, _ in rows]),
+                DispenseCommand.reservation_id.in_([row.id for row in rows]),
                 DispenseCommand.status == DispenseCommandStatus.OPEN,
             )
             .values(status=DispenseCommandStatus.ABANDONED, completed_at=func.now())
@@ -73,13 +73,18 @@ async def expire_due_reservations(
         )
     await session.commit()
 
-    for reservation_id, slot_id in rows:
+    for row in rows:
         try:
-            await hold_store.release(redis, slot_id, reservation_id)
+            await hold_store.release(redis, row.slot_id, row.id)
         except RedisError:
             # Redis already ignores the lapsed hold; reconciliation removes it later.
-            logger.warning("Could not tidy expired hold %s in Redis", reservation_id)
+            logger.warning("Could not tidy expired hold %s in Redis", row.id)
     if rows:
         logger.info("Expired %d reservation(s)", len(rows))
         await events.publish(redis, Topic.RESERVATION, machine_id=None, change="expired")
-    return [reservation_id for reservation_id, _ in rows]
+        for row in rows:  # each owner hears about their own
+            await events.publish_to_owner(
+                redis, user_id=row.user_id, reservation_id=row.id, machine_id=None,
+                change="expired",
+            )  # fmt: skip
+    return [row.id for row in rows]
