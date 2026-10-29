@@ -195,9 +195,11 @@ async def gateway_url(world: World, provider: MockPaymentProvider) -> AsyncItera
     """A real Uvicorn server for the app on a free local port (the machine
     gateway needs genuine WebSockets, which ASGITransport cannot carry), wired
     to the `world` database and test Redis. Yields its ws:// base URL."""
+    # log_config=None: the server's logs reach pytest's caplog like any other.
     config = uvicorn.Config(
-        app, host="127.0.0.1", port=0, ws="websockets", lifespan="off", log_level="warning"
-    )
+        app, host="127.0.0.1", port=0, ws="websockets", lifespan="off", log_level="warning",
+        log_config=None,
+    )  # fmt: skip
     server = uvicorn.Server(config)
     task = asyncio.create_task(server.serve())
     while not server.started:

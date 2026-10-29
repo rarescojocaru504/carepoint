@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api.v1 import (
     admin,
+    admin_events,
     auth,
     discovery,
     machine_api,
@@ -18,5 +19,6 @@ api_router.include_router(discovery.router)
 api_router.include_router(reservations.router)
 api_router.include_router(orders.router)
 api_router.include_router(admin.router)
+api_router.include_router(admin_events.router)
 api_router.include_router(machine_api.router)
 api_router.include_router(machine_ws.router)

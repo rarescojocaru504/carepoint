@@ -60,7 +60,9 @@ def pay(world: World, redis: Redis, provider: MockPaymentProvider) -> Any:
             view, _ = await create_reservation(
                 session, redis, user, ReservationCreate(slot_id=slot.id, quantity=quantity)
             )
-            result = await checkout(session, provider, user, view.reservation.id, "pm_card_ok")
+            result = await checkout(
+                session, redis, provider, user, view.reservation.id, "pm_card_ok"
+            )
         assert result.pickup is not None
         return Paid(user, result.reservation.id, result.pickup.code, result.pickup.qr_payload)
 

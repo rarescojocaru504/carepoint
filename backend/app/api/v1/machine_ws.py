@@ -12,7 +12,7 @@ import time
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, WebSocket
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from redis.asyncio.client import PubSub
 from redis.exceptions import RedisError
@@ -140,6 +140,8 @@ async def machine_gateway_socket(
             await send(command.model_dump_json())
         forwarder = asyncio.create_task(_forward_commands(pubsub, send, machine.serial_number))
         await _serve(websocket, connection, send)
+    except WebSocketDisconnect:
+        pass  # the machine went away while we were sending: an ordinary disconnect
     finally:
         if forwarder is not None:
             forwarder.cancel()

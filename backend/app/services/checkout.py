@@ -3,11 +3,14 @@
 import uuid
 from dataclasses import dataclass
 
+from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Order, PaymentStatus, Product, Reservation, ReservationStatus, User
 from app.models.machine import MachineSlot
+from app.services import events
+from app.services.events import Topic
 from app.services.payments import PaymentProvider
 from app.services.pickup_codes import PickupCredential, assign_code
 from app.services.reservations import (
@@ -35,6 +38,7 @@ class CheckoutResult:
 
 async def checkout(
     session: AsyncSession,
+    redis: Redis,
     provider: PaymentProvider,
     user: User,
     reservation_id: uuid.UUID,
@@ -98,4 +102,6 @@ async def checkout(
     pickup = await assign_code(session, reservation)
     await session.commit()
     await session.refresh(order)
+    await events.publish_for_slot(session, redis, Topic.RESERVATION, reservation.slot_id,
+                                  change="paid")  # fmt: skip
     return CheckoutResult(reservation, order, created=True, pickup=pickup)
