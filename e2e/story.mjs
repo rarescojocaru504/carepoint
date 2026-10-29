@@ -189,23 +189,23 @@ try {
   stream = listen(token);
   await stream.waitFor((n) => n.topic === "hello", "hello", 10_000);
 
-  const { data: nearby } = await api("GET", "/machines/nearby?lat=44.44&lng=26.08&radius_m=20000&limit=50");
-  const { data: kiosks } = await (async () => ({ data: await (await fetch(`${KIOSK}/api/machines`)).json() }))();
-  const serialOf = new Map(kiosks.map((k) => [k.machine_id, k]));
-  let machine;
-  let slot;
-  for (const candidate of nearby) {
-    const sim = serialOf.get(candidate.id);
-    if (candidate.status !== "active" || !candidate.online || !sim || sim.faults.offline) continue;
-    if (sim.faults.jam !== "off" || sim.faults.partial_next || sim.faults.drop_next_result) continue;
-    const { data: detail } = await api("GET", `/machines/${candidate.id}`);
-    slot = detail.slots.find((s) => s.available >= 2);
-    if (slot) {
-      machine = { ...candidate, serial: sim.serial };
-      break;
+  // An online, fault-free machine with a slot of >= 2 available units. Waited
+  // for: right after the backend restarts (as CI does for short holds) every
+  // machine is reconnecting, with backoff, and briefly reads as offline.
+  const { nearby, machine, slot } = await eventually(async () => {
+    const { data: machines } = await api("GET", "/machines/nearby?lat=44.44&lng=26.08&radius_m=20000&limit=50");
+    const kiosks = await (await fetch(`${KIOSK}/api/machines`)).json();
+    const simOf = new Map(kiosks.map((k) => [k.machine_id, k]));
+    for (const candidate of machines) {
+      const sim = simOf.get(candidate.id);
+      if (candidate.status !== "active" || !candidate.online || !sim || sim.faults.offline) continue;
+      if (sim.faults.jam !== "off" || sim.faults.partial_next || sim.faults.drop_next_result) continue;
+      const { data: detail } = await api("GET", `/machines/${candidate.id}`);
+      const usable = detail.slots.find((s) => s.available >= 2);
+      if (usable) return { nearby: machines, machine: { ...candidate, serial: sim.serial }, slot: usable };
     }
-  }
-  check(machine, "no online machine with a slot holding at least 2 available units");
+    return null;
+  }, "an online machine with a slot holding at least 2 available units", 90_000);
   console.log(`1. ${me.email} signed in; ${nearby.length} machines nearby; ` +
     `${machine.name} (${machine.serial}) has ${slot.available} × ${slot.product.name}`);
 
