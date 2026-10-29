@@ -61,7 +61,7 @@ Your goal is to build a scalable, production-ready system utilizing FastAPI, Pos
    - One branch per feature, cut from the latest `main`, named `<type>/<short-kebab-name>`: `feature/` (new functionality), `fix/` (bug fixes), `chore/` (tooling, CI, deps), `docs/` (docs only). E.g. `feature/redis-reservation-lock`.
    - Commit and open PRs autonomously; one logical change per PR.
    - CI (`.github/workflows/ci.yml`) auto-merges a PR into `main` once lint, tests and the Docker smoke test pass. Open a PR as a **draft** or label it `do-not-merge` to hold it.
-   - Before pushing, run locally from `backend/`: `ruff check .`, `ruff format --check .`, `mypy app alembic/env.py tests`, `pytest`; and from `hardware_sim/`: `ruff check .`, `ruff format --check .`, `mypy carepoint_sim tests scripts`, `pytest`.
+   - Before pushing, run locally from `backend/`: `ruff check .`, `ruff format --check .`, `mypy app alembic/env.py tests`, `pytest`; and from `hardware_sim/`: `ruff check .`, `ruff format --check .`, `mypy carepoint_sim tests scripts`, `pytest`; and from `hardware_sim/kiosk/`: `npm run build` (strict `tsc` + Vite).
 6. **Docker in the Claude Code cloud sandbox** (not needed on a normal machine):
    - Start the daemon with `dockerd &`, and stop any host `postgresql`/`redis-server` that hold ports 5432/6379.
    - Docker Hub rate-limits the sandbox (HTTP 429). Pull images from `mirror.gcr.io/<image>` and `docker tag` them to their normal names.
@@ -138,10 +138,10 @@ Rules for working through the roadmap:
 - [x] `docs/machine-protocol.md`: a versioned spec of the handshake, every message type, its JSON schema and the error codes, so a real machine (Raspberry Pi or ESP32) can replace the simulator without changes to the backend (#16, #17; schema in `docs/machine-protocol.schema.json`, checked by a test).
 - **Done when:** integration tests with a fake machine client cover the whole loop, including disconnecting halfway through a dispense.
 
-### Phase 7 — Hardware simulator
+### Phase 7 — Hardware simulator ✅
 - [x] `hardware_sim/`: a Python daemon (WebSocket client) that simulates one or more machines from config. It sends heartbeats and telemetry and responds to dispense commands. Faults can be injected: offline, jam, slow dispense (ADR-019, #18; also partial dispense and dropping the connection mid-dispense).
-- [ ] A kiosk single-page app in React: a touchscreen keypad and QR entry, slot display, and dispense animation and result.
-- [ ] Both are added to `docker-compose.yml`, so `docker compose up` starts a working demo machine.
+- [x] A kiosk single-page app in React: a touchscreen keypad and QR entry, slot display, and dispense animation and result (ADR-020, #19).
+- [x] Both are added to `docker-compose.yml`, so `docker compose up` starts a working demo machine (#18, #19: six machines online, kiosks on http://localhost:8080).
 - **Done when:** the CI smoke test drives the kiosk with Playwright: enter a code, see the item dispensed, and see stock go down.
 
 ### Phase 8 — Operator dashboard

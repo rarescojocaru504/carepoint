@@ -600,3 +600,37 @@ What the rules mean in practice:
 - **Locally against the real backend:** pay → code at the kiosk API → dispensed and captured, availability −1. With `drop_next_result`, the machine reconnected and the order was still captured. A `jam` left the order paid.
 - **Docker:** all 6 machines online on the map; `pickup_smoke.py` passes; the full backend suite passes in the container; 0 errors in the backend and simulator logs.
 - **CI:** the Docker job checks that all six machines come online and runs `hardware_sim/scripts/pickup_smoke.py`.
+
+## ADR-020: The kiosk screen (2026-10-29)
+
+`hardware_sim/kiosk/` is the touchscreen of a CarePoint machine: a React and strict TypeScript single-page app built with Vite. The simulator image builds it in a Node stage and serves it, so `http://localhost:8080` lists the simulated machines and `/kiosk/<serial>` is one machine's screen.
+
+**It talks only to its own machine.**
+- **The local API:** the screen calls the simulator's kiosk API (ADR-019): a snapshot, server-sent events, `verify`, faults and restock. On real hardware that API is the controller on the same board.
+- **The key stays local:** the browser never sees the machine's key and never talks to the backend directly. A compromised screen therefore can't impersonate the machine, and the backend has no browser-facing machine API to defend.
+- **Live updates:** these come over server-sent events, which reconnect on their own: `dispensing` → `unit_dispensed` → `dispensed`, plus online and offline. The screen's state follows the machine's events rather than the HTTP reply to `verify`, so a dispense that the server resends after a reconnect also shows up.
+
+**What the customer sees**
+- **The main screen:** a 6-digit keypad, which submits automatically at six digits and also works with a physical keyboard.
+- **"Scan QR code instead":** the camera with jsQR, accepting only `CP1:` payloads, or a paste field when there's no camera.
+- **The machine's window:** a slot grid with live counts and a pickup tray, where a parcel drops in for each unit released.
+
+Every server refusal has its own message. A failed dispense tells the customer the truth of ADR-018:
+- **Nothing came out:** "your order is still valid, try the same code again".
+- **Some items came out:** "only k item(s) came out, your order was cancelled and you will not be charged".
+
+After too many wrong codes the keypad locks and counts down `retry_after_seconds`.
+
+**An operator panel for presenters** (⚙ in the corner) switches the simulator's faults on and off live, and can restock the machine. Offline, jam, partial dispense and "lose the connection right after dispensing" can each be shown on stage in seconds.
+
+**Done-when test.** `e2e/kiosk-smoke.mjs` drives the kiosk in Chromium with Playwright against the Compose stack, in CI's Docker job:
+1. A customer logs in, reserves and pays through the API.
+2. A wrong code typed on the on-screen keypad is refused on screen.
+3. The right code shows "Dispensing from A1" and then "Please take your item".
+4. Stock goes down by 1 on the kiosk, in the app's availability and in the order (dispensed and captured).
+5. A second order is picked up through the QR dialog.
+
+Screenshots of each step are uploaded as a CI artifact. They also serve as pitch material.
+
+- **No test-runner dependency:** the test is a plain Node script using the `playwright` library rather than the test runner, so it runs anywhere with one dependency.
+- **A separate CI job for the screen:** a `Kiosk (TypeScript)` job runs the strict type check and the production build.

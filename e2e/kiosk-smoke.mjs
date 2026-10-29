@@ -94,6 +94,21 @@ try {
   check(order.reservation_status === "dispensed", "order not dispensed");
   check(order.payment_status === "captured", "payment not captured");
   check(appAfter === slot.available - 1, `app availability ${slot.available} -> ${appAfter}, expected -1`);
+
+  // The QR route: what the app's QR code contains, pasted into the scanner
+  // dialog (headless Chromium has no camera, like a desktop demo).
+  await page.getByTestId("done").waitFor({ state: "detached", timeout: 15_000 });
+  const second = await api("POST", "/reservations", { slot_id: slot.slot_id }, token);
+  const qr = (await api("POST", `/reservations/${second.id}/checkout`, { payment_method: "pm_card_ok" }, token))
+    .pickup.qr_payload;
+  await page.getByRole("button", { name: "Scan QR code instead" }).click();
+  await page.getByLabel("QR content").fill(qr);
+  await page.screenshot({ path: `${ARTIFACTS}5-qr.png` });
+  await page.getByRole("button", { name: "Use", exact: true }).click();
+  await page.getByTestId("done").waitFor({ timeout: 30_000 });
+  const afterQr = Number(await page.getByTestId("qty-A1").textContent());
+  console.log(`6. QR payload ${qr.slice(0, 12)}… -> dispensed; A1 on the machine: ${after} -> ${afterQr}`);
+  check(afterQr === after - 1, `machine stock ${after} -> ${afterQr} after the QR pickup, expected -1`);
   console.log("OK");
 } finally {
   await browser.close();
