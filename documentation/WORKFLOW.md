@@ -148,6 +148,12 @@ alembic upgrade head && alembic downgrade -1 && alembic upgrade head && alembic 
 python -m app.scripts.export_protocol_schema > ../docs/machine-protocol.schema.json
 ```
 
+**After changing an endpoint or a Pydantic schema,** regenerate the OpenAPI file the mobile app's types come from. The script writes the file itself (a shell redirect on Windows would write CRLF or UTF-16):
+
+```bash
+python -m app.scripts.export_openapi
+```
+
 ### Simulator and kiosk (`hardware_sim/`)
 
 **Install the simulator's dependencies and run its tests:**

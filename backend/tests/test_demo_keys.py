@@ -1,5 +1,6 @@
 """Demo machine keys for the simulator: issued once, kept across restarts."""
 
+import os
 import stat
 from pathlib import Path
 
@@ -35,7 +36,8 @@ async def test_keys_are_issued_once_and_then_kept(db_session: AsyncSession, tmp_
     path = key_path(tmp_path, serial)
     await db_session.refresh(machine)
     assert machine.auth_public_key == _public(path)
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    if os.name == "posix":  # Windows has no owner-only mode bits (it reports 0o666)
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
     first = path.read_bytes()
 
     # Restarting the stack keeps the key, so the simulator stays connected.

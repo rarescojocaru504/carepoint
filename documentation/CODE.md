@@ -227,6 +227,7 @@ The live interactive docs are at **http://localhost:8000/docs** (Swagger) and th
 | `demo_init --keys-dir DIR` | seed plus issue demo machine keys. Compose runs it when `DEMO_INIT=1` |
 | `provision_machine` | register a real machine's public key |
 | `export_protocol_schema` | regenerate `docs/machine-protocol.schema.json`; the drift test `test_published_json_schema_matches_the_code` fails until you do |
+| `export_openapi` | regenerate `mobile/openapi.json`, the source of the mobile app's API types; the drift test `test_published_openapi_matches_the_code` fails until you do |
 | `loadtest_fixtures` | data for `loadtest/` |
 
 ---
