@@ -61,11 +61,11 @@ Your goal is to build a scalable, production-ready system utilizing FastAPI, Pos
    - One branch per feature, cut from the latest `main`, named `<type>/<short-kebab-name>`: `feature/` (new functionality), `fix/` (bug fixes), `chore/` (tooling, CI, deps), `docs/` (docs only). E.g. `feature/redis-reservation-lock`.
    - Commit and open PRs autonomously; one logical change per PR.
    - CI (`.github/workflows/ci.yml`) auto-merges a PR into `main` once lint, tests and the Docker smoke test pass. Open a PR as a **draft** or label it `do-not-merge` to hold it.
-   - Before pushing, run locally from `backend/`: `ruff check .`, `ruff format --check .`, `mypy app alembic/env.py tests`, `pytest`.
+   - Before pushing, run locally from `backend/`: `ruff check .`, `ruff format --check .`, `mypy app alembic/env.py tests`, `pytest`; and from `hardware_sim/`: `ruff check .`, `ruff format --check .`, `mypy carepoint_sim tests scripts`, `pytest`.
 6. **Docker in the Claude Code cloud sandbox** (not needed on a normal machine):
    - Start the daemon with `dockerd &`, and stop any host `postgresql`/`redis-server` that hold ports 5432/6379.
    - Docker Hub rate-limits the sandbox (HTTP 429). Pull images from `mirror.gcr.io/<image>` and `docker tag` them to their normal names.
-   - Builds can't see the agent proxy's CA. Build a local `python:3.11-slim` that adds `/root/.ccr/ca-bundle.crt` and sets `PIP_CERT`/`SSL_CERT_FILE`. Then run `docker build --network host --build-arg HTTPS_PROXY=$HTTPS_PROXY -t carepoint-backend backend` and `docker compose up --no-build --pull never --wait`. Never commit these workarounds.
+   - Builds can't see the agent proxy's CA. Build a local `python:3.11-slim` that adds `/root/.ccr/ca-bundle.crt` and sets `PIP_CERT`/`SSL_CERT_FILE`. Then run `docker build --network host --build-arg HTTPS_PROXY=$HTTPS_PROXY -t carepoint-backend backend` (and the same for `-t carepoint-simulator hardware_sim`) and `docker compose up --no-build --pull never --wait`. Never commit these workarounds.
 
 ## 📝 Memory & Documentation
 Whenever you make a significant architectural decision (e.g., how the Redis lock is structured, how the IoT machine authenticates), document it immediately in `docs/architecture-decisions.md`.
@@ -139,7 +139,7 @@ Rules for working through the roadmap:
 - **Done when:** integration tests with a fake machine client cover the whole loop, including disconnecting halfway through a dispense.
 
 ### Phase 7 — Hardware simulator
-- [ ] `hardware_sim/`: a Python daemon (WebSocket client) that simulates one or more machines from config. It sends heartbeats and telemetry and responds to dispense commands. Faults can be injected: offline, jam, slow dispense.
+- [x] `hardware_sim/`: a Python daemon (WebSocket client) that simulates one or more machines from config. It sends heartbeats and telemetry and responds to dispense commands. Faults can be injected: offline, jam, slow dispense (ADR-019, #18; also partial dispense and dropping the connection mid-dispense).
 - [ ] A kiosk single-page app in React: a touchscreen keypad and QR entry, slot display, and dispense animation and result.
 - [ ] Both are added to `docker-compose.yml`, so `docker compose up` starts a working demo machine.
 - **Done when:** the CI smoke test drives the kiosk with Playwright: enter a code, see the item dispensed, and see stock go down.

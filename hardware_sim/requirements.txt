@@ -1,0 +1,5 @@
+# Runtime dependencies of the hardware simulator (deliberately independent of
+# backend/: it talks to the server only through docs/machine-protocol.md).
+aiohttp==3.11.10
+cryptography==44.0.0
+pydantic==2.10.4

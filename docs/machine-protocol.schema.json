@@ -299,6 +299,56 @@
       "title": "PickupRefusal",
       "type": "string"
     },
+    "PlanogramSlot": {
+      "description": "One slot as the server has it configured.",
+      "properties": {
+        "capacity": {
+          "title": "Capacity",
+          "type": "integer"
+        },
+        "product_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Product Name"
+        },
+        "product_sku": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "null: no product assigned (keep it empty)",
+          "title": "Product Sku"
+        },
+        "quantity": {
+          "description": "units the server believes are in the slot",
+          "title": "Quantity",
+          "type": "integer"
+        },
+        "slot": {
+          "title": "Slot",
+          "type": "string"
+        }
+      },
+      "required": [
+        "slot",
+        "product_sku",
+        "product_name",
+        "capacity",
+        "quantity"
+      ],
+      "title": "PlanogramSlot",
+      "type": "object"
+    },
     "ProtocolErrorCode": {
       "enum": [
         "invalid_message",
@@ -557,6 +607,14 @@
           "title": "Server Time",
           "type": "string"
         },
+        "slots": {
+          "description": "the machine's planogram: which product belongs in which slot",
+          "items": {
+            "$ref": "#/$defs/PlanogramSlot"
+          },
+          "title": "Slots",
+          "type": "array"
+        },
         "type": {
           "const": "welcome",
           "default": "welcome",
@@ -570,7 +628,8 @@
         "machine_id",
         "serial_number",
         "server_time",
-        "heartbeat_interval_seconds"
+        "heartbeat_interval_seconds",
+        "slots"
       ],
       "title": "Welcome",
       "type": "object"

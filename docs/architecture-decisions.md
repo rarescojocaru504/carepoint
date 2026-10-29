@@ -539,3 +539,64 @@ The pickup at the machine is `verify_code` → `verify_result` + `dispense` → 
   - no resend after the deadline;
   - a stock report leaving a slot mid-dispense alone.
 - **Mutation testing:** 16 mutants were planted and all were caught. The first run let one survive: resending commands after the deadline. Adding the missing test (`test_no_resend_once_the_deadline_has_passed`) caught it.
+
+## ADR-019: Hardware simulator (2026-10-29)
+
+`hardware_sim/` is a Python daemon (aiohttp) that plays the demo machines against the real machine gateway and serves their local kiosk API. It runs in Compose as `simulator`, so `docker compose up` brings up six online machines on the map.
+
+**Written from the spec, not from the backend.**
+- **No shared code:** the simulator imports nothing from `backend/`. Its request signing is a fresh implementation of ADR-010, checked against the published known-answer vector. Its message handling follows `machine-protocol.md`.
+- **What that proves:** a device can be built from the document alone, which is the point of Phase 6's spec.
+- **Separate dependencies:** the simulator has its own pinned dependencies and its own CI job (ruff, `mypy --strict`, pytest).
+
+**The planogram comes from the server (protocol revision 3).** `welcome` now carries `slots`: product, capacity and the server's count.
+- **First connection:** a fresh machine adopts those counts.
+- **After that:** its own persisted counts are what it reports.
+- **No local layout file:** a simulator (or a new real machine) needs no slot configuration of its own, only its serial number and key.
+
+**It obeys the §6 dispensing rules, durably.** Per-machine state is one JSON file, written atomically (temporary file, `fsync`, rename) after every change, like a device writing to flash. It holds:
+- the physical counts;
+- the executed commands and their results;
+- the outbox of results not yet acknowledged;
+- the dispense in progress.
+
+What the rules mean in practice:
+- **At most once:** a resent `dispense` is answered from storage, never dispensed twice.
+- **Interrupted dispenses:** a dispense interrupted by a crash is reported as `failed` / `power_loss` with the units counted so far, never restarted.
+- **Results before counts:** after every reconnect, stored results go first and then the stock report. The mechanism runs on its own task, so a dispense finishes even if the connection drops during it.
+- **Reconnecting:** exponential backoff with jitter, a fresh signed handshake each time, and the key file re-read on every attempt, so a re-issued demo key is picked up without a restart.
+
+**Fault injection** is set from the config or at runtime with `PUT /api/machines/{serial}/faults`:
+- **`offline`:** the machine disconnects and stays away until cleared.
+- **`jam`:** `next` or `always`; nothing comes out, and the machine reports a `failed` result plus an `error_event`.
+- **`partial_next`:** the next multi-unit dispense stops after one unit.
+- **`seconds_per_unit`:** a slow dispense (the demo's CP-BUC-0005 is deliberately slow).
+- **`drop_next_result`:** dispense, then lose the connection before reporting. This demonstrates the resend-and-outbox path live.
+
+**The local kiosk API** (`:8080`) is what the touchscreen talks to: snapshot, server-sent events, `verify`, faults and restock.
+- **Like a real machine:** the screen talks to the local controller, which holds the key; the key never reaches a browser.
+- **Unauthenticated:** this is acceptable because on hardware it listens on localhost. In Compose it is published for the demo, and the module docstring warns not to expose it.
+
+**Demo keys.**
+- **Issued at startup:** with `DEMO_INIT=1` (the Compose default), the backend container seeds the demo data and runs `app.scripts.demo_init`. That issues the six demo machines' keys into the `machine_keys` volume, which the simulator mounts read-only.
+- **Idempotent:** a key file that matches the registered public key is kept, so a restart doesn't disconnect anything. A missing or stale file (for example after the database was re-created) gets a new key pair.
+- **Development only:** it refuses with `ENVIRONMENT=production`, where machines generate their own keys (ADR-010).
+- **Why no separate service:** running this inside the backend's startup avoids a separate one-shot container, which `docker compose up --wait` handles inconsistently across Compose versions.
+
+**Evidence:**
+- **21 simulator tests** against a fake gateway that verifies every handshake signature. They cover:
+  - the known-answer vector;
+  - the protocol order (stock report → telemetry → heartbeat);
+  - adopting counts once and then using its own;
+  - dispensing; at-most-once delivery on a resend;
+  - the result surviving a dropped connection, with no ack, and being sent first;
+  - the drop-result fault;
+  - jam with an error event; partial; an empty slot;
+  - crash recovery with `power_loss`;
+  - `unknown_command` handling;
+  - the offline fault; retried refusals; commands sent straight after `welcome`;
+  - the kiosk API: snapshot, verify plus the SSE event order, input validation, offline, fault validation, restock.
+- **2 backend tests** for demo keys: issued once and kept; replaced when lost or stale.
+- **Locally against the real backend:** pay → code at the kiosk API → dispensed and captured, availability −1. With `drop_next_result`, the machine reconnected and the order was still captured. A `jam` left the order paid.
+- **Docker:** all 6 machines online on the map; `pickup_smoke.py` passes; the full backend suite passes in the container; 0 errors in the backend and simulator logs.
+- **CI:** the Docker job checks that all six machines come online and runs `hardware_sim/scripts/pickup_smoke.py`.

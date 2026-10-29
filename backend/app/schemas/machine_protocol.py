@@ -153,6 +153,16 @@ class _FromServer(BaseModel):
     model_config = ConfigDict(json_schema_serialization_defaults_required=True)
 
 
+class PlanogramSlot(_FromServer):
+    """One slot as the server has it configured."""
+
+    slot: str
+    product_sku: str | None = Field(description="null: no product assigned (keep it empty)")
+    product_name: str | None
+    capacity: int
+    quantity: int = Field(description="units the server believes are in the slot")
+
+
 class Welcome(_FromServer):
     """First message after the handshake."""
 
@@ -162,6 +172,9 @@ class Welcome(_FromServer):
     serial_number: str
     server_time: datetime
     heartbeat_interval_seconds: int
+    slots: list[PlanogramSlot] = Field(
+        description="the machine's planogram: which product belongs in which slot"
+    )
 
 
 class Ack(_FromServer):
