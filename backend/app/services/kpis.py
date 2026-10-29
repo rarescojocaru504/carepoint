@@ -91,19 +91,30 @@ async def _uptime(
             )
         )
     }
+    # A machine is measured from when it was first heard of (at most 24 h
+    # back): a machine installed an hour ago and up since then is 100%, not 4%.
+    first_seen = {
+        machine_id: at
+        for machine_id, at in await session.execute(
+            select(MachineEvent.machine_id, func.min(MachineEvent.created_at))
+            .where(MachineEvent.machine_id.in_(ids), MachineEvent.kind.in_(connection_kinds))
+            .group_by(MachineEvent.machine_id)
+        )
+    }
     window = timedelta(seconds=get_settings().machine_online_window_seconds)
     shares = [
         connected_share(
             events[m.id],
             initially_connected=initial.get(m.id, False),
-            start=start,
+            start=max(start, first_seen[m.id]),
             end=end,
             last_seen_at=m.last_seen_at,
             online_window=window,
         )
         for m in machines
+        if m.id in first_seen and first_seen[m.id] < end
     ]
-    return sum(shares) / len(shares)
+    return sum(shares) / len(shares) if shares else None
 
 
 async def _created_since(session: AsyncSession, since: datetime) -> int:

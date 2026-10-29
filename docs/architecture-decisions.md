@@ -725,3 +725,55 @@ data: {"topic": "stock", "machine_id": "…", "change": "restock", "at": "2026-1
   - the stream closes when its token expires.
 - **Publishers:** a reservation's life (created → paid → cancelled, and created → expired) publishes exactly the expected notices in order.
 - **Failure:** publishing with Redis down doesn't raise.
+
+## ADR-023: The operator dashboard (2026-10-29)
+
+`dashboard/` is a React and strict TypeScript single-page app built with Vite and served by nginx at **http://localhost:3000**. Nginx also proxies `/api` to the backend, so the browser talks to one origin: no CORS, and the bearer token is never sent anywhere else.
+
+**Views**
+- **Overview:**
+  - **KPI tiles** (ADR-021): reservations, pickup rate, expired holds, hold to pickup, stock-outs, machines online and uptime.
+  - **An OpenStreetMap map** (Leaflet circle markers coloured online, offline or maintenance).
+  - **The machine list**, with last seen, units and warnings.
+- **Machine:**
+  - **Telemetry:** temperature, door, firmware and last seen.
+  - **A slot grid** with low-stock and sold-out warnings, and held/free counts.
+  - **For a selected slot:** the restock or adjustment form, and its ledger history with who did what.
+  - **Recent events,** and maintenance on or off.
+- **Reservations:** a live feed across customers with status filters; new rows flash, and operators can cancel.
+- **Products:** add, edit name or price, deactivate or reactivate, and delete (refused for products in use).
+
+**Live, without polling.** One notice stream per tab (ADR-022) feeds every view.
+- **Refetching:** a view refetches what a notice says changed, debounced by 250 ms, and filtered by machine on the machine page.
+- **Missed notices:** it refetches everything when the stream reconnects, because notices may have been missed while it was down.
+- **Reading the stream:** it is read with `fetch()`, because `EventSource` can't send the token.
+- **Expiry:** when the stream ends at token expiry, the client refreshes the token and reconnects with backoff.
+- **Status:** a "Live" indicator shows the stream's state.
+
+**Sessions.**
+- **Where tokens live:** the 15-minute access token is kept in memory only. The rotating refresh token (ADR-009) is in `sessionStorage`, so a reload keeps the operator signed in and closing the tab signs them out.
+- **Refreshing:** a 401 triggers one refresh, de-duplicated across concurrent requests, so a refresh token is never presented twice and family reuse detection isn't tripped. If it fails, the operator signs in again.
+- **Customers:** customer accounts are refused in the UI ("No access"), and the API independently refuses them (401/403 on every admin route, tested in ADR-021).
+
+**Hardening.** Nginx sends:
+- **A strict Content-Security-Policy:**
+  - `default-src 'self'`;
+  - images only from the app itself and OpenStreetMap's tile servers;
+  - `connect-src 'self'`;
+  - `frame-ancestors 'none'`.
+- **Other headers:** `X-Content-Type-Options` and `Referrer-Policy`.
+- **Streaming:** `proxy_buffering off` for the event stream.
+- **Caching:** hashed assets are cached immutably, and `index.html` never.
+
+**KPI fix found on the way.** Uptime used to divide by a full 24 hours, so a fresh demo showed "uptime 0%" after a few minutes. Each machine is now measured from its first connection, at most 24 hours back, and a machine that has never connected is left out rather than counted as 0%. A test checks 100%, 50% and no data.
+
+**Done-when test.** `e2e/dashboard-smoke.mjs` runs Playwright in Chromium against the Compose stack, in CI's Docker job:
+1. A **customer** account gets "No access".
+2. The **operator** sees all 6 machines, none offline, and the live indicator on.
+3. A **restock** of +2 on CP-BUC-0003 A1 through the form updates the dashboard (2 → 4) **and the machine's own count** (2 → 4, via `adjust_stock`), and appears in the history under the operator's email.
+4. A reservation made by a customer through the API **appears in the live feed**.
+5. A product is added, deactivated and deleted.
+6. **`docker compose stop simulator`** turns every machine on the open overview from online to offline, without a reload (CP-BUC-0006 shows "maintenance", as seeded).
+7. Starting the simulator again brings them back online.
+
+The test also fails on any uncaught page error. That check caught a Leaflet teardown bug (the map removed mid-animation), now fixed. Screenshots of each step are uploaded as a CI artifact. A `Dashboard (TypeScript)` CI job runs the strict type check and the production build.

@@ -100,6 +100,22 @@ services:
       backend:
         condition: service_healthy
 
+  # Operator dashboard on http://localhost:3000 (ADR-023); nginx also proxies /api.
+  dashboard:
+    build:
+      context: ./dashboard
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
 volumes:
   postgres_data:
   redis_data:

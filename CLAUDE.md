@@ -61,7 +61,7 @@ Your goal is to build a scalable, production-ready system utilizing FastAPI, Pos
    - One branch per feature, cut from the latest `main`, named `<type>/<short-kebab-name>`: `feature/` (new functionality), `fix/` (bug fixes), `chore/` (tooling, CI, deps), `docs/` (docs only). E.g. `feature/redis-reservation-lock`.
    - Commit and open PRs autonomously; one logical change per PR.
    - CI (`.github/workflows/ci.yml`) auto-merges a PR into `main` once lint, tests and the Docker smoke test pass. Open a PR as a **draft** or label it `do-not-merge` to hold it.
-   - Before pushing, run locally from `backend/`: `ruff check .`, `ruff format --check .`, `mypy app alembic/env.py tests`, `pytest`; and from `hardware_sim/`: `ruff check .`, `ruff format --check .`, `mypy carepoint_sim tests scripts`, `pytest`; and from `hardware_sim/kiosk/`: `npm run build` (strict `tsc` + Vite).
+   - Before pushing, run locally from `backend/`: `ruff check .`, `ruff format --check .`, `mypy app alembic/env.py tests`, `pytest`; and from `hardware_sim/`: `ruff check .`, `ruff format --check .`, `mypy carepoint_sim tests scripts`, `pytest`; and from `hardware_sim/kiosk/`: `npm run build` (strict `tsc` + Vite); the same in `dashboard/`.
 6. **Docker in the Claude Code cloud sandbox** (not needed on a normal machine):
    - Start the daemon with `dockerd &`, and stop any host `postgresql`/`redis-server` that hold ports 5432/6379.
    - Docker Hub rate-limits the sandbox (HTTP 429). Pull images from `mirror.gcr.io/<image>` and `docker tag` them to their normal names.
@@ -144,7 +144,7 @@ Rules for working through the roadmap:
 - [x] Both are added to `docker-compose.yml`, so `docker compose up` starts a working demo machine (#18, #19: six machines online, kiosks on http://localhost:8080).
 - **Done when:** the CI smoke test drives the kiosk with Playwright: enter a code, see the item dispensed, and see stock go down.
 
-### Phase 8 — Operator dashboard
+### Phase 8 — Operator dashboard ✅
 - [x] Admin API (`/api/v1/admin/*`, Phase 2 roles; ADR-021, #20):
   - list machines with status and last-seen time;
   - stock per slot;
@@ -152,20 +152,20 @@ Rules for working through the roadmap:
   - record a restock or adjustment (written to `stock_movements`);
   - create, update and delete products;
   - KPI summary.
-- [ ] `dashboard/`: a React and TypeScript web app (Vite), served by Compose:
+- [x] `dashboard/`: a React and TypeScript web app (Vite), served by Compose on http://localhost:3000 (ADR-023, #22):
   - a map and list of machines with online/offline status and last-seen time;
   - a slot grid with low-stock warnings;
   - a live reservations feed;
   - a restock form and history;
   - product management.
-- [ ] KPI tiles for the pitch:
+- [x] KPI tiles for the pitch (#20, #22):
   - reservations today and over 7 days;
   - pickup rate, meaning dispensed out of held;
   - expired holds;
   - average time from hold to pickup;
   - stock-outs;
   - machine uptime.
-- [ ] Live updates over the same push channel the machine gateway uses.
+- [x] Live updates over the same push channel the machine gateway uses (Redis pub/sub notices streamed to the dashboard, ADR-022, #21).
 - **Done when:** Playwright checks that an operator can log in, see a machine go offline when the simulator stops, record a restock and see the stock update, and that a customer account can't access the dashboard.
 
 ### Phase 9 — Mobile app foundation

@@ -442,3 +442,26 @@ def test_connected_share(
         online_window=WINDOW,
     )  # fmt: skip
     assert computed == pytest.approx(share)
+
+
+async def test_uptime_counts_from_when_a_machine_was_first_seen(db_session: AsyncSession) -> None:
+    """A machine installed an hour ago and connected since is 100% up, not ~4%."""
+    from app.services.kpis import _uptime
+
+    now = datetime.now(UTC)
+    up = await make_machine(db_session, last_seen_at=now)
+    half = await make_machine(db_session, last_seen_at=now - timedelta(minutes=30))
+    db_session.add_all([
+        MachineEvent(machine_id=up.id, kind=MachineEventKind.CONNECTED,
+                     created_at=now - timedelta(hours=1)),
+        MachineEvent(machine_id=half.id, kind=MachineEventKind.CONNECTED,
+                     created_at=now - timedelta(hours=2)),
+        MachineEvent(machine_id=half.id, kind=MachineEventKind.DISCONNECTED,
+                     created_at=now - timedelta(hours=1)),
+    ])  # fmt: skip
+    await db_session.flush()
+    never = await make_machine(db_session)  # never connected: no data, not 0%
+
+    assert await _uptime(db_session, [up], now - timedelta(hours=24), now) == pytest.approx(1.0)
+    assert await _uptime(db_session, [half], now - timedelta(hours=24), now) == pytest.approx(0.5)
+    assert await _uptime(db_session, [never], now - timedelta(hours=24), now) is None
