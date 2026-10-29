@@ -394,3 +394,83 @@ The checkout response returns both **once**, with `Cache-Control: no-store`. An 
 **Evidence:**
 - 24 tests: issuing; hash ≠ code ≠ unkeyed hash; verifying by code and by QR; bound to its machine; 6 kinds of bad input, including Unicode digits and injection attempts; dead after dispense, cancel and expiry; rotation; uniqueness and reuse; collision regeneration; lockout; success-not-counted; the pepper requirements.
 - **Mutation-tested:** removing the pepper, removing the machine binding, letting codes work after dispensing, removing the lockout, counting successes as failures, and letting a QR ignore its reservation id were each caught. Accepting non-ASCII digits survives as an *equivalent* mutant, because such codes hash differently and can never match; the ASCII-only rule is defence in depth.
+
+## ADR-017: Machine gateway, part 1: connection and telemetry (2026-10-29)
+
+Machines keep one WebSocket open to `/api/v1/ws/machines`. The wire format is specified in [`machine-protocol.md`](machine-protocol.md), and its JSON Schema is generated from the server's own models. A test fails if the published schema and the code drift apart.
+
+**Handshake = ADR-010.**
+- **Signing:** the upgrade request is signed like any machine request (`GET`, raw path, empty body), so there is one signing scheme for HTTP and WebSocket and one known-answer vector.
+- **Versioning:** the protocol version is the WebSocket subprotocol, `carepoint.v1`. A future v2 can be offered alongside v1 during a firmware rollout.
+- **Refusals:** a refused handshake gets a plain **HTTP** 400, 401 or 503 (the ASGI denial-response extension) rather than an accept-then-close. A machine can therefore tell "fix your key" apart from "retry later" without the server saying which check failed.
+
+**One reply per message, handled in order.**
+- **Matching replies:** every machine message carries an `id` and gets exactly one `ack` or `error` with `reply_to`.
+- **Simple firmware:** the machine doesn't need any request tracking beyond "wait for the reply to the last message".
+- **Ordering:** handling messages strictly in order also gives Phase 6 part 2 the guarantee it needs: a dispense result sent before a stock report is applied before it.
+
+**Zero trust on every frame.**
+- **Strict validation:** messages are Pydantic models with `extra="forbid"` and strict numbers, so `"5"`, `true` and `1.5` are never taken as integers, and `NaN` or out-of-range values are rejected. Free text can't contain control characters, because it ends up in logs and on the dashboard.
+- **Ownership:** a machine can only touch its own slots. Slot codes are looked up within the authenticated machine, so `A1` from machine X can never reach machine Y's `A1`.
+- **Limits per connection:**
+  - 16 KiB per message, and text frames only;
+  - 30 messages per 10 s;
+  - 10 rejected messages, then the connection is closed;
+  - 90 s of silence, then the connection is closed.
+
+  Server-side failures are answered with `internal_error` (retry) and don't count as the machine's fault.
+- **Decommissioning:** the machine's status is checked on every message, so decommissioning a stolen machine cuts off its live connection immediately (close code 4003), not just its next handshake.
+
+**A session per message, not per connection.** A connection lives for hours. Holding one `AsyncSession` that long would serve stale rows from its identity map and pin a pooled database connection per machine. So each message opens and commits its own short session, from a `get_session_factory` dependency that tests can override.
+
+**One live connection per machine.**
+- **Recording the newest:** on connect, the connection's id is written to Redis (`machine-connection:<machine id>`).
+- **Superseding:** every incoming message first checks that it is still the newest. If not, the connection is closed with 4000. This works across workers, and a machine that reconnected before its old socket timed out is never served on two connections.
+- **Redis failure:** if Redis can't be read, the connection is assumed current. The worst case is briefly serving two connections, which is preferable to dropping a healthy machine.
+
+**Liveness and telemetry.**
+- **Online status:** connecting and every `heartbeat` set `last_seen_at`. "Online" is unchanged from ADR-011: heard from within `MACHINE_ONLINE_WINDOW_SECONDS` (90).
+- **Heartbeat interval:** `welcome` tells the machine to heartbeat every `MACHINE_HEARTBEAT_INTERVAL_SECONDS` (30). The settings refuse an interval longer than half the window, so one lost heartbeat never shows a healthy machine as offline.
+- **Stored telemetry:** the latest door state and temperature are stored on the machine row (migration `0006`, with a database CHECK of −40…85 °C).
+- **Event log:** a new append-only `machine_events` table logs connections, disconnections, door changes and reported faults. Phase 8's uptime KPI and error feed read from it.
+
+**Stock reports: the machine's count wins, and the ledger records why.**
+- **Why the machine wins:** the machine is the only witness of what is physically inside it.
+- **Corrections:** a reported count that differs from the database is applied through `record_stock_movement` as a `telemetry_correction`, with a note of both numbers. The ledger shows every correction, and the Redis quantity mirror is updated after the commit; if that update fails, reconciliation repairs it (ADR-013).
+- **All or nothing:** the whole report is validated before anything is written, and rejected as a whole if any entry is unknown, over capacity, or puts items in a slot that has no product assigned. A half-applied report would leave the database matching neither the old state nor the machine.
+- **Lock order:** slot rows are locked in id order, so two overlapping reports can't deadlock.
+
+**Server details.**
+- **WebSocket implementation:** Compose runs Uvicorn with `--ws websockets`, explicitly, so a missing library fails at startup instead of silently disabling WebSockets.
+- **Frame size:** `--ws-max-size 65536` stops oversized frames before they are buffered.
+- **Pinning:** `websockets` is pinned, because Uvicorn 0.34 uses its legacy server module.
+
+**Known limits:**
+- **Offline lag:** a machine that loses power shows as offline after up to 90 s, not instantly.
+- **Key rotation:** rotating a machine's key doesn't drop an already-open connection; decommissioning does.
+- **Rate limits are per connection and in memory:** each connection lives on one worker, and reconnecting needs a fresh signed handshake.
+
+**Evidence:**
+- **49 tests** run against a real Uvicorn server and a real WebSocket client that signs its handshake as firmware would. They cover:
+  - the happy path;
+  - 6 forged or stale handshakes, plus a replayed one, no subprotocol and a decommissioned machine;
+  - heartbeat and telemetry storage, door-change events and error events;
+  - stock correction in Postgres, the ledger and Redis;
+  - 3 kinds of whole-report rejection;
+  - cross-machine isolation;
+  - 20 kinds of malformed message;
+  - the invalid-message, flood, binary, oversize, idle and superseded closes;
+  - decommissioning while connected;
+  - the disconnect log;
+  - schema drift.
+- **Mutation-tested:** each of these mutants was caught:
+  - removing the subprotocol check;
+  - the machine scope on slot lookups;
+  - the capacity check and the unassigned-slot check;
+  - the supersede check;
+  - the rate limit and the invalid-message counter;
+  - counting server errors as the machine's fault;
+  - logging the door on every reading;
+  - the Redis mirror;
+  - the decommission check;
+  - the size limit and the text-only check.

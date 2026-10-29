@@ -1,0 +1,363 @@
+{
+  "$defs": {
+    "Ack": {
+      "description": "The message `reply_to` was accepted and applied.",
+      "properties": {
+        "reply_to": {
+          "title": "Reply To",
+          "type": "string"
+        },
+        "type": {
+          "const": "ack",
+          "default": "ack",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "reply_to"
+      ],
+      "title": "Ack",
+      "type": "object"
+    },
+    "Error": {
+      "description": "The message `reply_to` was rejected and nothing of it was applied.",
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ProtocolErrorCode"
+        },
+        "detail": {
+          "title": "Detail",
+          "type": "string"
+        },
+        "reply_to": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "null if the message had no readable id",
+          "title": "Reply To"
+        },
+        "type": {
+          "const": "error",
+          "default": "error",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "reply_to",
+        "code",
+        "detail"
+      ],
+      "title": "Error",
+      "type": "object"
+    },
+    "ErrorEvent": {
+      "additionalProperties": false,
+      "description": "A fault the machine detected.",
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/MachineErrorCode"
+        },
+        "id": {
+          "description": "Chosen by the machine; echoed as `reply_to`.",
+          "pattern": "^[A-Za-z0-9_-]{1,64}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "message": {
+          "anyOf": [
+            {
+              "pattern": "^[^\\x00-\\x1f\\x7f]{1,200}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Message"
+        },
+        "slot": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Z][0-9]{1,2}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Slot"
+        },
+        "type": {
+          "const": "error_event",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "code"
+      ],
+      "title": "ErrorEvent",
+      "type": "object"
+    },
+    "Heartbeat": {
+      "additionalProperties": false,
+      "description": "Send every `heartbeat_interval_seconds` (from `welcome`).",
+      "properties": {
+        "firmware_version": {
+          "pattern": "^[A-Za-z0-9._+-]{1,32}$",
+          "title": "Firmware Version",
+          "type": "string"
+        },
+        "id": {
+          "description": "Chosen by the machine; echoed as `reply_to`.",
+          "pattern": "^[A-Za-z0-9_-]{1,64}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "heartbeat",
+          "title": "Type",
+          "type": "string"
+        },
+        "uptime_seconds": {
+          "maximum": 315360000,
+          "minimum": 0,
+          "title": "Uptime Seconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "firmware_version",
+        "uptime_seconds"
+      ],
+      "title": "Heartbeat",
+      "type": "object"
+    },
+    "MachineErrorCode": {
+      "description": "Faults a machine can report (docs/machine-protocol.md).",
+      "enum": [
+        "jam",
+        "motor_fault",
+        "sensor_fault",
+        "door_forced",
+        "temperature_out_of_range",
+        "power_loss",
+        "other"
+      ],
+      "title": "MachineErrorCode",
+      "type": "string"
+    },
+    "MachineToServer": {
+      "discriminator": {
+        "mapping": {
+          "error_event": "#/$defs/ErrorEvent",
+          "heartbeat": "#/$defs/Heartbeat",
+          "stock_report": "#/$defs/StockReport",
+          "telemetry": "#/$defs/Telemetry"
+        },
+        "propertyName": "type"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/Heartbeat"
+        },
+        {
+          "$ref": "#/$defs/Telemetry"
+        },
+        {
+          "$ref": "#/$defs/StockReport"
+        },
+        {
+          "$ref": "#/$defs/ErrorEvent"
+        }
+      ]
+    },
+    "ProtocolErrorCode": {
+      "enum": [
+        "invalid_message",
+        "unknown_slot",
+        "out_of_range",
+        "slot_not_configured",
+        "internal_error"
+      ],
+      "title": "ProtocolErrorCode",
+      "type": "string"
+    },
+    "ServerToMachine": {
+      "discriminator": {
+        "mapping": {
+          "ack": "#/$defs/Ack",
+          "error": "#/$defs/Error",
+          "welcome": "#/$defs/Welcome"
+        },
+        "propertyName": "type"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/Welcome"
+        },
+        {
+          "$ref": "#/$defs/Ack"
+        },
+        {
+          "$ref": "#/$defs/Error"
+        }
+      ]
+    },
+    "SlotCount": {
+      "additionalProperties": false,
+      "properties": {
+        "quantity": {
+          "maximum": 1000,
+          "minimum": 0,
+          "title": "Quantity",
+          "type": "integer"
+        },
+        "slot": {
+          "pattern": "^[A-Z][0-9]{1,2}$",
+          "title": "Slot",
+          "type": "string"
+        }
+      },
+      "required": [
+        "slot",
+        "quantity"
+      ],
+      "title": "SlotCount",
+      "type": "object"
+    },
+    "StockReport": {
+      "additionalProperties": false,
+      "description": "Units physically in each listed slot, as counted by the machine now.",
+      "properties": {
+        "id": {
+          "description": "Chosen by the machine; echoed as `reply_to`.",
+          "pattern": "^[A-Za-z0-9_-]{1,64}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "slots": {
+          "items": {
+            "$ref": "#/$defs/SlotCount"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "title": "Slots",
+          "type": "array"
+        },
+        "type": {
+          "const": "stock_report",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "slots"
+      ],
+      "title": "StockReport",
+      "type": "object"
+    },
+    "Telemetry": {
+      "additionalProperties": false,
+      "description": "Door and cabinet temperature; send on change and with every heartbeat.",
+      "properties": {
+        "door": {
+          "enum": [
+            "open",
+            "closed"
+          ],
+          "title": "Door",
+          "type": "string"
+        },
+        "id": {
+          "description": "Chosen by the machine; echoed as `reply_to`.",
+          "pattern": "^[A-Za-z0-9_-]{1,64}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "temperature_c": {
+          "maximum": 85.0,
+          "minimum": -40.0,
+          "title": "Temperature C",
+          "type": "number"
+        },
+        "type": {
+          "const": "telemetry",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "door",
+        "temperature_c"
+      ],
+      "title": "Telemetry",
+      "type": "object"
+    },
+    "Welcome": {
+      "description": "First message after the handshake.",
+      "properties": {
+        "heartbeat_interval_seconds": {
+          "title": "Heartbeat Interval Seconds",
+          "type": "integer"
+        },
+        "machine_id": {
+          "format": "uuid",
+          "title": "Machine Id",
+          "type": "string"
+        },
+        "protocol": {
+          "default": 1,
+          "title": "Protocol",
+          "type": "integer"
+        },
+        "serial_number": {
+          "title": "Serial Number",
+          "type": "string"
+        },
+        "server_time": {
+          "format": "date-time",
+          "title": "Server Time",
+          "type": "string"
+        },
+        "type": {
+          "const": "welcome",
+          "default": "welcome",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "protocol",
+        "machine_id",
+        "serial_number",
+        "server_time",
+        "heartbeat_interval_seconds"
+      ],
+      "title": "Welcome",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CarePoint machine protocol v1 (carepoint.v1)"
+}

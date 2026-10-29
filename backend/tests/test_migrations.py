@@ -5,6 +5,7 @@ from alembic import command
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from app.core.db import Base
 from tests.helpers import alembic_config
 
 pytestmark = pytest.mark.integration
@@ -42,7 +43,7 @@ def test_migrations_upgrade_and_downgrade(test_database_url: str) -> None:
 
     command.upgrade(config, "head")
     assert _postgis_installed(test_database_url)
-    assert _app_table_count(test_database_url) == 8
+    assert _app_table_count(test_database_url) == len(Base.metadata.tables)
 
     command.downgrade(config, "base")
     assert not _postgis_installed(test_database_url)

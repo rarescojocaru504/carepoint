@@ -43,6 +43,26 @@ class ReservationStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+class MachineEventKind(StrEnum):
+    CONNECTED = "connected"
+    DISCONNECTED = "disconnected"
+    ERROR = "error"
+    DOOR_OPENED = "door_opened"
+    DOOR_CLOSED = "door_closed"
+
+
+class MachineErrorCode(StrEnum):
+    """Faults a machine can report (docs/machine-protocol.md)."""
+
+    JAM = "jam"
+    MOTOR_FAULT = "motor_fault"
+    SENSOR_FAULT = "sensor_fault"
+    DOOR_FORCED = "door_forced"
+    TEMPERATURE_OUT_OF_RANGE = "temperature_out_of_range"
+    POWER_LOSS = "power_loss"
+    OTHER = "other"
+
+
 class PaymentStatus(StrEnum):
     AUTHORIZED = "authorized"
     CAPTURED = "captured"

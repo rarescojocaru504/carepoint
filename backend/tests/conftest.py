@@ -1,3 +1,4 @@
+import asyncio
 import os
 import socket
 
@@ -9,6 +10,7 @@ from urllib.parse import urlsplit
 
 import httpx
 import pytest
+import uvicorn
 from alembic import command
 from fastapi.testclient import TestClient
 from redis.asyncio import Redis
@@ -16,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
-from app.core.db import get_db
+from app.core.db import get_db, get_session_factory
 from app.core.redis import get_redis
 from app.main import app
 from app.services.payments import MockPaymentProvider, get_payment_provider
@@ -167,6 +169,7 @@ async def world(migrated_database_url: str, redis: Redis) -> AsyncIterator[World
 
     app.dependency_overrides[get_db] = _db
     app.dependency_overrides[get_redis] = _redis
+    app.dependency_overrides[get_session_factory] = lambda: w.sessions
     try:
         yield w
     finally:
@@ -182,3 +185,25 @@ def provider() -> Iterator[MockPaymentProvider]:
     app.dependency_overrides[get_payment_provider] = lambda: mock
     yield mock
     app.dependency_overrides.pop(get_payment_provider, None)
+
+
+@pytest.fixture
+async def gateway_url(world: World, provider: MockPaymentProvider) -> AsyncIterator[str]:
+    """A real Uvicorn server for the app on a free local port (the machine
+    gateway needs genuine WebSockets, which ASGITransport cannot carry), wired
+    to the `world` database and test Redis. Yields its ws:// base URL."""
+    config = uvicorn.Config(
+        app, host="127.0.0.1", port=0, ws="websockets", lifespan="off", log_level="warning"
+    )
+    server = uvicorn.Server(config)
+    task = asyncio.create_task(server.serve())
+    while not server.started:
+        if task.done():
+            task.result()  # surface the startup error
+        await asyncio.sleep(0.01)
+    port = server.servers[0].sockets[0].getsockname()[1]
+    try:
+        yield f"ws://127.0.0.1:{port}"
+    finally:
+        server.should_exit = True
+        await task

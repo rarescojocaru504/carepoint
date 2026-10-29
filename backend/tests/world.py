@@ -12,11 +12,13 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.models import (
     Machine,
+    MachineEvent,
     MachineSlot,
     Order,
     Product,
@@ -26,6 +28,7 @@ from app.models import (
     StockMovement,
     User,
 )
+from app.services.machine_auth import public_key_bytes
 
 WORLD_LOCATION = "SRID=4326;POINT(150 -60)"
 
@@ -64,6 +67,41 @@ class World:
         await self.add(slot)
         return slot
 
+    async def machine(
+        self, slots: dict[str, int | None], capacity: int = 10
+    ) -> tuple[Machine, Ed25519PrivateKey, dict[str, MachineSlot]]:
+        """A machine with a registered key and one slot per entry: slot code ->
+        quantity, or None for a slot with no product assigned."""
+        tag = uuid.uuid4().hex[:8].upper()
+        key = Ed25519PrivateKey.generate()
+        product = Product(
+            sku=f"GW-{tag}",
+            name="Gateway item",
+            category=ProductCategory.HYGIENE,
+            price_cents=500,
+            currency="RON",
+        )
+        machine = Machine(
+            serial_number=f"CP-GW-{tag}",
+            name="Gateway",
+            address="x",
+            location=WORLD_LOCATION,
+            auth_public_key=public_key_bytes(key),
+        )
+        await self.add(product, machine)
+        made = {
+            code: MachineSlot(
+                machine_id=machine.id,
+                product_id=None if quantity is None else product.id,
+                slot_code=code,
+                quantity=quantity or 0,
+                capacity=capacity,
+            )
+            for code, quantity in slots.items()
+        }
+        await self.add(*made.values())
+        return machine, key, made
+
     async def users(self, n: int) -> list[User]:
         users = [
             User(email=f"race-{uuid.uuid4().hex[:12]}@example.com", password_hash="!",
@@ -99,6 +137,9 @@ class World:
                 )
             )
             await session.execute(delete(RefreshToken).where(RefreshToken.user_id.in_(user_ids)))
+            await session.execute(
+                delete(MachineEvent).where(MachineEvent.machine_id.in_(self.ids(Machine)))
+            )
             for model in (MachineSlot, Machine, Product, User):
                 await session.execute(delete(model).where(model.id.in_(self.ids(model))))
             await session.commit()
