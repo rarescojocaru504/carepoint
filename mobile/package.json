@@ -1,0 +1,45 @@
+{
+  "name": "carepoint-mobile",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "dependencies": {
+    "expo": "~58.0.21",
+    "expo-secure-store": "~58.0.2",
+    "expo-status-bar": "~58.0.4",
+    "openapi-fetch": "^0.17.0",
+    "react": "19.3.0",
+    "react-native": "0.88.1",
+    "zustand": "^5.0.16"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^26.6.6",
+    "@types/react": "~19.3.0",
+    "eslint": "^9.39.5",
+    "eslint-config-expo": "^58.0.4",
+    "jest": "^30.5.2",
+    "jest-expo": "^58.0.13",
+    "typescript": "~6.0.3"
+  },
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "gen:api": "npm --prefix tools/gen-api ci --no-audit --no-fund --loglevel=error && node tools/gen-api/node_modules/openapi-typescript/bin/cli.js openapi.json --output src/services/api-types.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "jest"
+  },
+  "jest": {
+    "preset": "jest-expo",
+    "setupFiles": [
+      "<rootDir>/jest.setup.ts"
+    ],
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "/tools/"
+    ]
+  },
+  "private": true
+}

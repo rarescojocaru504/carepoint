@@ -171,9 +171,9 @@ Rules for working through the roadmap:
 - **Done when:** Playwright checks that an operator can log in, see a machine go offline when the simulator stops, record a restock and see the stock update, and that a customer account can't access the dashboard.
 
 ### Phase 9 — Mobile app foundation
-- [ ] `mobile/`: Expo with strict TypeScript, Zustand stores, an API client typed from the OpenAPI schema, and secure token storage.
+- [x] `mobile/`: Expo with strict TypeScript, Zustand stores, an API client typed from the OpenAPI schema, and secure token storage (ADR-024, #25, #26).
 - [ ] Screens: login and register, a map of nearby machines (React Native Maps) and a machine details page with stock.
-- [ ] CI: `tsc --noEmit`, ESLint and Jest.
+- [x] CI: `tsc --noEmit`, ESLint and Jest, plus a check that the generated API types are current (#26).
 
 ### Phase 10 — Mobile reserve → pay → pickup flow
 - [ ] Reserve from the machine page, mock checkout, a reservation screen with a live 15-minute countdown and the pickup QR code and PIN, cancel, and order history.

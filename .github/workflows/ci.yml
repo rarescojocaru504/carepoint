@@ -152,6 +152,33 @@ jobs:
       - name: Type check (strict) and build
         run: npm run build
 
+  mobile:
+    name: Mobile (TypeScript)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci
+      - name: Generated API types match openapi.json
+        run: |
+          npm run gen:api
+          git diff --exit-code -- src/services/api-types.ts \
+            || { echo "::error::src/services/api-types.ts is stale: run npm run gen:api"; exit 1; }
+      - name: Type check (strict)
+        run: npm run typecheck
+      - name: ESLint
+        run: npm run lint
+      - name: Jest
+        run: npm test -- --ci
+
   docker:
     name: Docker Compose smoke test
     timeout-minutes: 30
@@ -218,7 +245,7 @@ jobs:
   automerge:
     name: Auto-merge
     timeout-minutes: 5
-    needs: [lint, test, simulator, kiosk, dashboard, docker]
+    needs: [lint, test, simulator, kiosk, dashboard, mobile, docker]
     # Same-repo PRs only (never forks), not drafts, and not labelled do-not-merge.
     if: >-
       github.event_name == 'pull_request' &&

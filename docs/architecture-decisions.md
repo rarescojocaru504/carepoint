@@ -777,3 +777,34 @@ data: {"topic": "stock", "machine_id": "…", "change": "restock", "at": "2026-1
 7. Starting the simulator again brings them back online.
 
 The test also fails on any uncaught page error. That check caught a Leaflet teardown bug (the map removed mid-animation), now fixed. Screenshots of each step are uploaded as a CI artifact. A `Dashboard (TypeScript)` CI job runs the strict type check and the production build.
+
+## ADR-024: The mobile app's foundation (2026-10-29)
+
+`mobile/` is the customer app: **Expo SDK 58** (React Native 0.88, React 19) in strict TypeScript, created from the official `blank-typescript` template.
+
+**Expo Go, no native code.** Everything the MVP needs (secure storage, maps, location, QR codes) works inside Expo Go, so the owner can run the app on their own phone by scanning a QR code, with no Xcode, Android Studio or developer accounts. Expo Go supports only the current SDK, so the versions the template chose are pinned by `package-lock.json` and upgraded together with `npx expo install --fix`.
+
+**One API contract, checked twice.** The app never hand-writes an API type.
+1. The backend writes its OpenAPI schema to `mobile/openapi.json` (`python -m app.scripts.export_openapi`). A backend test fails if the file is stale (PR #25).
+2. `npm run gen:api` turns it into `src/services/api-types.ts` with `openapi-typescript`. The file is committed, and the CI job **Mobile (TypeScript)** regenerates it and fails on any difference. The generator lives in its own small package, `mobile/tools/gen-api/`, with its own lockfile: openapi-typescript 7 requires TypeScript 5 as a peer, while Expo SDK 58 ships TypeScript 6. Keeping it apart avoids `--legacy-peer-deps` for the whole app, and the app is type-checked with the TypeScript version Expo supports.
+3. Calls go through `openapi-fetch`, so every path, parameter, body and response is checked by `tsc`. Renaming a field in a Pydantic schema breaks the app's type check in the same PR, not on a phone.
+
+The whole schema is exported, operator routes included. It is already public at `/openapi.json`; the app simply doesn't call the admin routes, and the server enforces roles anyway (ADR-009).
+
+**Tokens** (`src/services/tokens.ts`):
+- The 15-minute access token lives **in memory only**.
+- The rotating refresh token lives in **`expo-secure-store`** (iOS Keychain, Android Keystore), so the app stays signed in across restarts. Nothing session-related is written to plain storage.
+- **Pickup codes are never written to disk** (Phase 10): they stay in memory and are re-issued with `POST /reservations/{id}/pickup-code` if lost.
+
+**Refreshing** (`src/services/api.ts`), modelled on the dashboard (ADR-023):
+- A 401 triggers **one refresh shared by all requests** that hit it, then each request is retried once with its body intact. A rotated refresh token is therefore never presented twice, which the server would treat as theft and answer by revoking the whole login (ADR-009).
+- The refresh token is deleted **only when the server rejects it** (401 or 422). A network error, a 429 or a 503 keeps it. A phone that starts in a lift or on a train is therefore "unreachable, try again", not signed out.
+- When the server does reject it, the auth store hears about it (`onSessionEnded`) and shows the sign-in screen.
+
+**State.** Zustand stores in `src/store/`. The `auth` store has four states: `restoring` (app start), `unreachable`, `signedOut` and `signedIn`.
+
+**Configuration.** The API address comes from `EXPO_PUBLIC_API_URL`, inlined by Expo at bundle time, defaulting to `http://localhost:8000`. A phone needs the computer's LAN address, for example `http://192.168.1.23:8000`; the Android emulator uses `http://10.0.2.2:8000`. The backend needs no CORS for this, because native apps aren't browsers.
+
+**Checks.** The CI job **Mobile (TypeScript)** runs `npm ci`, the generated-types check, `tsc --noEmit` (strict, plus `noUncheckedIndexedAccess`), ESLint (`eslint-config-expo` with `no-explicit-any` as an error) and Jest (`jest-expo`). It is in `automerge.needs`. It uses Node 22, which React Native 0.88 requires; the other jobs stay on Node 20.
+
+**Evidence.** Jest tests with a fake API server installed as `fetch`: the access token is never written to SecureStore; a 401 refreshes once and retries with the same body; three concurrent 401s cause exactly one refresh; a rejected refresh token signs the user out; a network error or 429 keeps the token; sign-out works offline; every FastAPI error shape is read; the auth store restores, reports "unreachable", registers, signs in and out.

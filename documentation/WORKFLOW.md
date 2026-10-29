@@ -234,7 +234,7 @@ These are the same checks CI runs. Run them for every component you touched.
 | `hardware_sim/` | `ruff check .` · `ruff format --check .` · `mypy carepoint_sim tests scripts` · `pytest` |
 | `hardware_sim/kiosk/` | `npm run build` |
 | `dashboard/` | `npm run build` |
-| `mobile/` (Phase 9 onwards) | `npx tsc --noEmit` · `npx eslint .` · `npx jest` |
+| `mobile/` | `npm run gen:api` (no diff) · `npm run typecheck` · `npm run lint` · `npm test` |
 | Compose changed? | `docker compose up --build --wait`, then the e2e scripts |
 
 `ruff format .`, without `--check`, fixes the formatting for you.
@@ -270,10 +270,11 @@ gh pr create --fill
 | Hardware simulator | ruff, mypy and pytest |
 | Kiosk (TypeScript) | strict build |
 | Dashboard (TypeScript) | strict build |
+| Mobile (TypeScript) | generated API types current, strict `tsc`, ESLint, Jest (Node 22) |
 | Docker Compose smoke test | the full stack, seeding twice, 6 machines online, `pickup_smoke.py`, the kiosk and dashboard Playwright tests, then pytest inside the backend container |
 | Auto-merge | when all of the above pass, **merges the PR into `main`** and deletes the branch |
 
-Phase 9 adds a **Mobile** job. Add it to `automerge.needs` in the same PR.
+Every job above is in `automerge.needs`; a new job must be added there in the same PR.
 
 **5. To hold a PR back** from merging, open it as a **draft** or add the label `do-not-merge`.
 
