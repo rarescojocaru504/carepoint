@@ -10,7 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Order, PaymentStatus, Product, Reservation, ReservationStatus, User
 from app.models.machine import MachineSlot
 from app.services import events
-from app.services.events import Topic
 from app.services.payments import PaymentProvider
 from app.services.pickup_codes import PickupCredential, assign_code
 from app.services.reservations import (
@@ -102,6 +101,5 @@ async def checkout(
     pickup = await assign_code(session, reservation)
     await session.commit()
     await session.refresh(order)
-    await events.publish_for_slot(session, redis, Topic.RESERVATION, reservation.slot_id,
-                                  change="paid")  # fmt: skip
+    await events.publish_reservation_for_slot(session, redis, reservation, change="paid")
     return CheckoutResult(reservation, order, created=True, pickup=pickup)

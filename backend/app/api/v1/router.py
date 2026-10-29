@@ -5,6 +5,7 @@ from app.api.v1 import (
     admin_events,
     auth,
     discovery,
+    events,
     machine_api,
     machine_ws,
     orders,
@@ -18,6 +19,7 @@ api_router.include_router(users.router)
 api_router.include_router(discovery.router)
 api_router.include_router(reservations.router)
 api_router.include_router(orders.router)
+api_router.include_router(events.router)
 api_router.include_router(admin.router)
 api_router.include_router(admin_events.router)
 api_router.include_router(machine_api.router)

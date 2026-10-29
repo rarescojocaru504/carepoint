@@ -292,6 +292,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Customer Events
+         * @description Live notices: machine availability and status, and your own reservations.
+         */
+        get: operations["customer_events_api_v1_events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/machine/heartbeat": {
         parameters: {
             query?: never;
@@ -730,6 +750,39 @@ export interface components {
             order: components["schemas"]["OrderRead"];
             pickup: components["schemas"]["PickupCredentialRead"] | null;
             reservation: components["schemas"]["ReservationRead"];
+        };
+        /**
+         * CustomerNotice
+         * @description One server-sent event's `data`.
+         *
+         *     - `hello` / `subscribed`: the stream is open; re-read everything once.
+         *     - `stock` / `availability`: what can be reserved at `machine_id` changed
+         *       (`null`: possibly at several machines).
+         *     - `machine` / `online`, `offline`, `status`: the machine connected,
+         *       disconnected, or was put into or out of maintenance.
+         *     - `reservation` / `created`, `paid`, `dispensing`, `dispensed`, `partial`,
+         *       `cancelled`, `expired`: one of **your own** reservations changed.
+         */
+        CustomerNotice: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Change */
+            change: string;
+            /** Machine Id */
+            machine_id?: string | null;
+            /**
+             * Reservation Id
+             * @description Set only on your own reservation notices
+             */
+            reservation_id?: string | null;
+            /**
+             * Topic
+             * @enum {string}
+             */
+            topic: "hello" | "stock" | "machine" | "reservation";
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -2139,6 +2192,48 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
+            };
+        };
+    };
+    customer_events_api_v1_events_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A stream of `data: <CustomerNotice JSON>` events */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerNotice"];
+                    "text/event-stream": unknown;
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Too many open streams for this user */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Service unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

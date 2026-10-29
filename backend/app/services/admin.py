@@ -189,13 +189,14 @@ async def get_machine(session: AsyncSession, machine_id: uuid.UUID) -> AdminMach
 
 
 async def set_machine_status(
-    session: AsyncSession, machine_id: uuid.UUID, status: MachineStatus
+    session: AsyncSession, redis: Redis, machine_id: uuid.UUID, status: MachineStatus
 ) -> AdminMachineDetail:
     machine = await session.get(Machine, machine_id, with_for_update=True)
     if machine is None:
         raise NotFoundError("machine not found")
     machine.status = status
     await session.commit()
+    await events.publish(redis, Topic.MACHINE, machine_id=machine_id, change="status")
     return await get_machine(session, machine_id)
 
 

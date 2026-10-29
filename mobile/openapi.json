@@ -456,6 +456,62 @@
         "title": "CheckoutResponse",
         "type": "object"
       },
+      "CustomerNotice": {
+        "description": "One server-sent event's `data`.\n\n- `hello` / `subscribed`: the stream is open; re-read everything once.\n- `stock` / `availability`: what can be reserved at `machine_id` changed\n  (`null`: possibly at several machines).\n- `machine` / `online`, `offline`, `status`: the machine connected,\n  disconnected, or was put into or out of maintenance.\n- `reservation` / `created`, `paid`, `dispensing`, `dispensed`, `partial`,\n  `cancelled`, `expired`: one of **your own** reservations changed.",
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "change": {
+            "title": "Change",
+            "type": "string"
+          },
+          "machine_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Machine Id"
+          },
+          "reservation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set only on your own reservation notices",
+            "title": "Reservation Id"
+          },
+          "topic": {
+            "enum": [
+              "hello",
+              "stock",
+              "machine",
+              "reservation"
+            ],
+            "title": "Topic",
+            "type": "string"
+          }
+        },
+        "required": [
+          "topic",
+          "change",
+          "at"
+        ],
+        "title": "CustomerNotice",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -2849,6 +2905,43 @@
         "summary": "Register",
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/api/v1/events": {
+      "get": {
+        "description": "Live notices: machine availability and status, and your own reservations.",
+        "operationId": "customer_events_api_v1_events_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerNotice"
+                }
+              },
+              "text/event-stream": {}
+            },
+            "description": "A stream of `data: <CustomerNotice JSON>` events"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "429": {
+            "description": "Too many open streams for this user"
+          },
+          "503": {
+            "description": "Service unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Customer Events",
+        "tags": [
+          "events"
         ]
       }
     },
