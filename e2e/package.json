@@ -1,0 +1,12 @@
+{
+  "name": "carepoint-e2e",
+  "private": true,
+  "description": "Browser end-to-end tests against the running Docker Compose stack.",
+  "type": "module",
+  "scripts": {
+    "kiosk": "node kiosk-smoke.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.49.1"
+  }
+}
