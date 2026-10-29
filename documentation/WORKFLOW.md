@@ -237,6 +237,14 @@ cd e2e && npm ci && npx playwright install chromium
 node kiosk-smoke.mjs && node dashboard-smoke.mjs
 ```
 
+**The whole story** (ADR-030): the customer's side through the app's API calls, the kiosk in a browser, and, when holds are short, the expiry:
+
+```bash
+node story.mjs
+```
+
+To include the expiry half, restart the backend with short holds first (`RESERVATION_HOLD_SECONDS=40 docker compose up -d --wait backend`; plain `docker compose up -d --wait backend` switches back). `STORY_VIDEO=1 node story.mjs` also records a captioned video and step screenshots in `e2e/artifacts/story-video/`.
+
 `dashboard-smoke.mjs` stops and restarts the `simulator` container itself, so it needs the `docker` command available. Screenshots go to `e2e/artifacts/`.
 
 ---
@@ -288,7 +296,7 @@ gh pr create --fill
 | Kiosk (TypeScript) | strict build |
 | Dashboard (TypeScript) | strict build |
 | Mobile (TypeScript) | generated API types current, strict `tsc`, ESLint, Jest (Node 22) |
-| Docker Compose smoke test | the full stack, seeding twice, 6 machines online, `pickup_smoke.py`, the kiosk and dashboard Playwright tests, then pytest inside the backend container |
+| Docker Compose smoke test | the full stack, seeding twice, 6 machines online, `pickup_smoke.py`, the kiosk and dashboard Playwright tests, pytest inside the backend container, then **the whole MVP story** (`e2e/story.mjs`) with 40 s holds, recorded as the `story-video` artifact |
 | Auto-merge | when all of the above pass, **merges the PR into `main`** and deletes the branch |
 
 Every job above is in `automerge.needs`; a new job must be added there in the same PR.

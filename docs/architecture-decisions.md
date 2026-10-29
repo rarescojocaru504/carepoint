@@ -1037,3 +1037,41 @@ Re-reads are debounced by 300 ms per target, so a dispense, which sends several 
   - the business gauges present;
   - production refusing a short token.
 - On the Compose stack: the backend's log lines are JSON, and the machine gateway's lines carry their WebSocket connection's id. A request sent with `X-Request-ID: demo-req-0001` logged under that id. `/metrics` returned 401 without a token, and for the operator showed 5 machines online, 1 in maintenance and 239 units available.
+
+## ADR-030: The whole story as one CI test, and the demo mode (2026-10-29)
+
+**The test.** `e2e/story.mjs` runs the MVP user story from `CLAUDE.md` against the live Compose stack, in CI's Docker job.
+
+**The customer's side uses exactly the API calls the app makes** (`mobile/src/store/*`):
+- sign in;
+- `/me`;
+- nearby machines;
+- a machine's detail;
+- the live stream `GET /api/v1/events`;
+- reserve with an idempotency key, sending the same request twice as a retried tap would;
+- checkout;
+- the reservation;
+- orders.
+
+The test asserts the live notices the app relies on: `created`, availability, `paid`, `dispensing`, `dispensed` and `expired`, each with this customer's reservation id. None of the notices it receives carries someone else's reservation (ADR-026).
+
+**The machine's side is real:** Playwright types the code on the kiosk's keypad, the simulated machine dispenses over the real protocol, and the test checks the stock on the machine's screen and in the API.
+
+**Two halves:**
+1. **Pickup:** reserve → availability drops → pay (authorised) → code at the kiosk → dispensed → **captured**.
+2. **Expiry:** reserve and pay → don't come → the `expired` notice → the order is **voided** → the unit is back on sale.
+
+The expiry half needs short holds, so it runs only when the server's holds are 90 s or less. In CI it is the **last** step: after pytest has run against the normal configuration, the backend is restarted with `RESERVATION_HOLD_SECONDS=40`, and the story takes about two minutes.
+
+**Choosing a machine:** the test picks an online, fault-free machine with a slot holding at least two available units, so it can run repeatedly against the same stack. It passed 5 of 5 local runs.
+
+**The demo video.** With `STORY_VIDEO=1` the same run is recorded (Playwright video, 1280×720) and a screenshot is saved at every step. The customer's app is native, not a web page, so the video moves between the operator dashboard's live reservations feed and the machine's kiosk, with captions describing what the customer does in the app at each step. CI uploads the video as the `story-video` artifact on every run, which makes it a backup for a live demo that fails. A copy recorded on a fresh stack is in `docs/pitch/`.
+
+**The demo mode** (Phase 11, #32):
+- `docker-compose.yml` passes `RESERVATION_HOLD_SECONDS` to the backend, so `RESERVATION_HOLD_SECONDS=60 docker compose up` shows an expiry on stage within a minute.
+- Restarting just the backend, `docker compose up -d --wait backend`, switches between the two modes without touching the database. Holds already running keep their expiry.
+- `.env.example` lists the settings worth changing.
+
+**Found on the way.**
+- The e2e scripts built paths with `new URL(...).pathname`, which is `/C:/...` on Windows. They now use `fileURLToPath`, so they run on the owner's Windows machine too (#32).
+- The story's first version checked for the dashboard's sign-in form before React had drawn it, failing about 1 run in 3. It now waits for whichever screen appears.
