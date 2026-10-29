@@ -5,3 +5,5 @@ __pycache__/
 .ruff_cache/
 tests/
 scripts/
+kiosk/node_modules/
+kiosk/dist/
