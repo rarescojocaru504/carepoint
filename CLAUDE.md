@@ -152,13 +152,13 @@ Rules for working through the roadmap:
   - record a restock or adjustment (written to `stock_movements`);
   - create, update and delete products;
   - KPI summary.
-- [x] `dashboard/`: a React and TypeScript web app (Vite), served by Compose on http://localhost:3000 (ADR-023, #22):
+- [x] `dashboard/`: a React and TypeScript web app (Vite), served by Compose on http://localhost:3000 (ADR-023, #23):
   - a map and list of machines with online/offline status and last-seen time;
   - a slot grid with low-stock warnings;
   - a live reservations feed;
   - a restock form and history;
   - product management.
-- [x] KPI tiles for the pitch (#20, #22):
+- [x] KPI tiles for the pitch (#20, #23):
   - reservations today and over 7 days;
   - pickup rate, meaning dispensed out of held;
   - expired holds;
