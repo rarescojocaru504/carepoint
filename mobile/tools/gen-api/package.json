@@ -1,0 +1,9 @@
+{
+  "name": "carepoint-gen-api",
+  "private": true,
+  "description": "Generates src/services/api-types.ts from openapi.json. Kept apart from the app because openapi-typescript 7 needs TypeScript 5 and Expo SDK 58 ships TypeScript 6 (ADR-024).",
+  "devDependencies": {
+    "openapi-typescript": "7.13.0",
+    "typescript": "5.9.3"
+  }
+}
