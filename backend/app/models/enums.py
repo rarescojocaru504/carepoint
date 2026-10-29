@@ -63,6 +63,13 @@ class MachineErrorCode(StrEnum):
     OTHER = "other"
 
 
+class DispenseCommandStatus(StrEnum):
+    OPEN = "open"  # sent to the machine, result not yet received
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    ABANDONED = "abandoned"  # no result before the reservation expired
+
+
 class PaymentStatus(StrEnum):
     AUTHORIZED = "authorized"
     CAPTURED = "captured"

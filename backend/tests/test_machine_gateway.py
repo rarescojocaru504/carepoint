@@ -1,11 +1,10 @@
 """Machine gateway over a real WebSocket: handshake, telemetry, stock
 reconciliation and the protocol's defences against a misbehaving machine."""
 
-import asyncio
 import json
 import time
 import uuid
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -32,29 +31,10 @@ from app.schemas.machine_protocol import (
 from app.scripts.export_protocol_schema import render
 from app.services import hold_store, machine_telemetry
 from app.services.hold_store import SlotState
-from tests.fake_machine import FakeMachine
+from tests.fake_machine import FakeMachine, MakeMachine, eventually
 from tests.world import World
 
 pytestmark = pytest.mark.integration
-
-MakeMachine = Callable[..., Awaitable[tuple[FakeMachine, Machine, dict[str, MachineSlot]]]]
-
-
-@pytest.fixture
-async def make_machine(world: World, gateway_url: str) -> AsyncIterator[MakeMachine]:
-    machines: list[FakeMachine] = []
-
-    async def make(
-        slots: dict[str, int | None] | None = None, **kwargs: Any
-    ) -> tuple[FakeMachine, Machine, dict[str, MachineSlot]]:
-        machine, key, made = await world.machine(slots or {"A1": 5}, **kwargs)
-        fake = FakeMachine(gateway_url, machine.serial_number, key)
-        machines.append(fake)
-        return fake, machine, made
-
-    yield make
-    for fake in machines:
-        await fake.close()
 
 
 async def _events(world: World, machine_id: uuid.UUID) -> list[MachineEvent]:
@@ -94,13 +74,6 @@ async def _corrections(world: World, slot_id: uuid.UUID) -> list[StockMovement]:
                 .order_by(StockMovement.id)
             )
         )
-
-
-async def _eventually(check: Callable[[], Awaitable[bool]], within: float = 5) -> None:
-    deadline = time.monotonic() + within
-    while not await check():
-        assert time.monotonic() < deadline, "condition not reached in time"
-        await asyncio.sleep(0.05)
 
 
 # --- handshake ------------------------------------------------------------------
@@ -497,7 +470,7 @@ async def test_disconnect_is_logged(make_machine: MakeMachine, world: World) -> 
         kinds = [e.kind for e in await _events(world, machine.id)]
         return kinds == [MachineEventKind.CONNECTED, MachineEventKind.DISCONNECTED]
 
-    await _eventually(logged)
+    await eventually(logged)
 
 
 # --- the published spec ---------------------------------------------------------

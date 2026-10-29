@@ -14,9 +14,17 @@ import re
 import uuid
 from datetime import datetime
 from enum import StrEnum
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from app.models.enums import MachineErrorCode
 from app.schemas.common import InputModel
@@ -33,6 +41,9 @@ SlotQuantity = Annotated[int, Field(strict=True, ge=0, le=1000)]
 TemperatureC = Annotated[float, Field(strict=True, ge=-40, le=85, allow_inf_nan=False)]
 # Free text from a machine ends up in logs and on the dashboard: no control characters.
 EventText = Annotated[str, Field(pattern=r"^[^\x00-\x1f\x7f]{1,200}$")]
+# What the customer typed or scanned, passed on verbatim (printable ASCII).
+Credential = Annotated[str, Field(pattern=r"^[\x20-\x7e]{1,64}$")]
+UnitCount = Annotated[int, Field(strict=True, ge=0, le=10)]
 
 
 # --- machine -> server ----------------------------------------------------------
@@ -87,8 +98,33 @@ class ErrorEvent(_FromMachine):
     message: EventText | None = None
 
 
+class VerifyCode(_FromMachine):
+    """A customer typed a pickup code or scanned its QR code."""
+
+    type: Literal["verify_code"]
+    credential: Credential = Field(description="6-digit code, or the QR payload CP1:<id>:<code>")
+
+
+class DispenseResult(_FromMachine):
+    """What happened to a `dispense` command. Send once per command, and again
+    (same content) if it was not acknowledged before a disconnect."""
+
+    type: Literal["dispense_result"]
+    command_id: uuid.UUID
+    outcome: Literal["dispensed", "failed"]
+    units_dispensed: UnitCount
+    error_code: MachineErrorCode | None = None
+
+    @model_validator(mode="after")
+    def _error_code_iff_failed(self) -> Self:
+        if (self.outcome == "failed") != (self.error_code is not None):
+            raise ValueError("error_code is required if and only if outcome is failed")
+        return self
+
+
 MachineMessage = Annotated[
-    Heartbeat | Telemetry | StockReport | ErrorEvent, Field(discriminator="type")
+    Heartbeat | Telemetry | StockReport | ErrorEvent | VerifyCode | DispenseResult,
+    Field(discriminator="type"),
 ]
 _machine_message: TypeAdapter[MachineMessage] = TypeAdapter(MachineMessage)
 
@@ -101,7 +137,15 @@ class ProtocolErrorCode(StrEnum):
     UNKNOWN_SLOT = "unknown_slot"
     OUT_OF_RANGE = "out_of_range"
     SLOT_NOT_CONFIGURED = "slot_not_configured"
+    UNKNOWN_COMMAND = "unknown_command"
     INTERNAL_ERROR = "internal_error"
+
+
+class PickupRefusal(StrEnum):
+    INVALID_CODE = "invalid_code"
+    TOO_MANY_ATTEMPTS = "too_many_attempts"
+    PICKUP_IN_PROGRESS = "pickup_in_progress"
+    MACHINE_UNAVAILABLE = "machine_unavailable"
 
 
 class _FromServer(BaseModel):
@@ -136,7 +180,33 @@ class Error(_FromServer):
     detail: str
 
 
-ServerMessage = Annotated[Welcome | Ack | Error, Field(discriminator="type")]
+class VerifyResult(_FromServer):
+    """Reply to `verify_code`. When `ok`, a `dispense` command follows at once."""
+
+    type: Literal["verify_result"] = "verify_result"
+    reply_to: str
+    ok: bool
+    refusal: PickupRefusal | None = None
+    retry_after_seconds: int | None = Field(
+        default=None, description="with too_many_attempts: when the keypad works again"
+    )
+    command_id: uuid.UUID | None = Field(default=None, description="the dispense that follows")
+
+
+class Dispense(_FromServer):
+    """Command: release `quantity` units from `slot`. Execute each `command_id`
+    at most once; if it arrives again, resend its result instead."""
+
+    type: Literal["dispense"] = "dispense"
+    command_id: uuid.UUID
+    reservation_id: uuid.UUID
+    slot: str
+    quantity: int
+
+
+ServerMessage = Annotated[
+    Welcome | Ack | Error | VerifyResult | Dispense, Field(discriminator="type")
+]
 
 
 # --- parsing --------------------------------------------------------------------

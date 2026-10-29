@@ -130,12 +130,12 @@ Rules for working through the roadmap:
 - [x] Order history: `GET /api/v1/orders` and `GET /api/v1/orders/{id}` (#14).
 - **Done when:** every state transition is tested (`held` → `paid` → `dispensed` | `expired` | `cancelled`) and illegal transitions are rejected.
 
-### Phase 6 — Machine gateway (IoT)
+### Phase 6 — Machine gateway (IoT) ✅
 - [x] WebSocket `/api/v1/ws/machines`, authenticated with the Phase 2 handshake. Every incoming message is validated against strict Pydantic models and anything malformed or out of range is rejected (ADR-017, #16).
 - [x] Telemetry: heartbeat (online/offline from `last_seen_at`), stock counts per slot, door and temperature, and error events (#16).
-- [ ] Commands: `verify_code` → `dispense(slot, qty)` → the machine sends `dispense_result`, which marks the reservation dispensed and captures payment. Commands are idempotent, carry IDs and are retried on reconnect.
+- [x] Commands: `verify_code` → `dispense(slot, qty)` → the machine sends `dispense_result`, which marks the reservation dispensed and captures payment. Commands are idempotent, carry IDs and are retried on reconnect (ADR-018, #17).
 - [x] Stock received from a machine is reconciled against the database and any mismatch is logged as a `stock_movements` correction (#16).
-- [ ] `docs/machine-protocol.md`: a versioned spec of the handshake, every message type, its JSON schema and the error codes, so a real machine (Raspberry Pi or ESP32) can replace the simulator without changes to the backend.
+- [x] `docs/machine-protocol.md`: a versioned spec of the handshake, every message type, its JSON schema and the error codes, so a real machine (Raspberry Pi or ESP32) can replace the simulator without changes to the backend (#16, #17; schema in `docs/machine-protocol.schema.json`, checked by a test).
 - **Done when:** integration tests with a fake machine client cover the whole loop, including disconnecting halfway through a dispense.
 
 ### Phase 7 — Hardware simulator

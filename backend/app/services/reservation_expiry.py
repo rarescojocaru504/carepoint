@@ -13,7 +13,7 @@ from redis.exceptions import RedisError
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Reservation, ReservationStatus
+from app.models import DispenseCommand, DispenseCommandStatus, Reservation, ReservationStatus
 from app.services import hold_store
 from app.services.availability import ACTIVE_HOLD_STATUSES
 
@@ -57,6 +57,19 @@ async def expire_due_reservations(
             .execution_options(synchronize_session=False)
         )
     ).all()
+    if rows:
+        # A dispense that got no result before the (extended) hold ran out is
+        # abandoned with it; a result arriving later is recorded as late (ADR-018).
+        # Same lock order as everywhere: reservation rows, then their commands.
+        await session.execute(
+            update(DispenseCommand)
+            .where(
+                DispenseCommand.reservation_id.in_([rid for rid, _ in rows]),
+                DispenseCommand.status == DispenseCommandStatus.OPEN,
+            )
+            .values(status=DispenseCommandStatus.ABANDONED, completed_at=func.now())
+            .execution_options(synchronize_session=False)
+        )
     await session.commit()
 
     for reservation_id, slot_id in rows:

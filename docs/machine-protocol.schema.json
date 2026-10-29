@@ -21,6 +21,100 @@
       "title": "Ack",
       "type": "object"
     },
+    "Dispense": {
+      "description": "Command: release `quantity` units from `slot`. Execute each `command_id`\nat most once; if it arrives again, resend its result instead.",
+      "properties": {
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "quantity": {
+          "title": "Quantity",
+          "type": "integer"
+        },
+        "reservation_id": {
+          "format": "uuid",
+          "title": "Reservation Id",
+          "type": "string"
+        },
+        "slot": {
+          "title": "Slot",
+          "type": "string"
+        },
+        "type": {
+          "const": "dispense",
+          "default": "dispense",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "command_id",
+        "reservation_id",
+        "slot",
+        "quantity"
+      ],
+      "title": "Dispense",
+      "type": "object"
+    },
+    "DispenseResult": {
+      "additionalProperties": false,
+      "description": "What happened to a `dispense` command. Send once per command, and again\n(same content) if it was not acknowledged before a disconnect.",
+      "properties": {
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MachineErrorCode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "id": {
+          "description": "Chosen by the machine; echoed as `reply_to`.",
+          "pattern": "^[A-Za-z0-9_-]{1,64}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "outcome": {
+          "enum": [
+            "dispensed",
+            "failed"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
+        "type": {
+          "const": "dispense_result",
+          "title": "Type",
+          "type": "string"
+        },
+        "units_dispensed": {
+          "maximum": 10,
+          "minimum": 0,
+          "title": "Units Dispensed",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "command_id",
+        "outcome",
+        "units_dispensed"
+      ],
+      "title": "DispenseResult",
+      "type": "object"
+    },
     "Error": {
       "description": "The message `reply_to` was rejected and nothing of it was applied.",
       "properties": {
@@ -165,10 +259,12 @@
     "MachineToServer": {
       "discriminator": {
         "mapping": {
+          "dispense_result": "#/$defs/DispenseResult",
           "error_event": "#/$defs/ErrorEvent",
           "heartbeat": "#/$defs/Heartbeat",
           "stock_report": "#/$defs/StockReport",
-          "telemetry": "#/$defs/Telemetry"
+          "telemetry": "#/$defs/Telemetry",
+          "verify_code": "#/$defs/VerifyCode"
         },
         "propertyName": "type"
       },
@@ -184,8 +280,24 @@
         },
         {
           "$ref": "#/$defs/ErrorEvent"
+        },
+        {
+          "$ref": "#/$defs/VerifyCode"
+        },
+        {
+          "$ref": "#/$defs/DispenseResult"
         }
       ]
+    },
+    "PickupRefusal": {
+      "enum": [
+        "invalid_code",
+        "too_many_attempts",
+        "pickup_in_progress",
+        "machine_unavailable"
+      ],
+      "title": "PickupRefusal",
+      "type": "string"
     },
     "ProtocolErrorCode": {
       "enum": [
@@ -193,6 +305,7 @@
         "unknown_slot",
         "out_of_range",
         "slot_not_configured",
+        "unknown_command",
         "internal_error"
       ],
       "title": "ProtocolErrorCode",
@@ -202,7 +315,9 @@
       "discriminator": {
         "mapping": {
           "ack": "#/$defs/Ack",
+          "dispense": "#/$defs/Dispense",
           "error": "#/$defs/Error",
+          "verify_result": "#/$defs/VerifyResult",
           "welcome": "#/$defs/Welcome"
         },
         "propertyName": "type"
@@ -216,6 +331,12 @@
         },
         {
           "$ref": "#/$defs/Error"
+        },
+        {
+          "$ref": "#/$defs/VerifyResult"
+        },
+        {
+          "$ref": "#/$defs/Dispense"
         }
       ]
     },
@@ -311,6 +432,103 @@
         "temperature_c"
       ],
       "title": "Telemetry",
+      "type": "object"
+    },
+    "VerifyCode": {
+      "additionalProperties": false,
+      "description": "A customer typed a pickup code or scanned its QR code.",
+      "properties": {
+        "credential": {
+          "description": "6-digit code, or the QR payload CP1:<id>:<code>",
+          "pattern": "^[\\x20-\\x7e]{1,64}$",
+          "title": "Credential",
+          "type": "string"
+        },
+        "id": {
+          "description": "Chosen by the machine; echoed as `reply_to`.",
+          "pattern": "^[A-Za-z0-9_-]{1,64}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "verify_code",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "credential"
+      ],
+      "title": "VerifyCode",
+      "type": "object"
+    },
+    "VerifyResult": {
+      "description": "Reply to `verify_code`. When `ok`, a `dispense` command follows at once.",
+      "properties": {
+        "command_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "the dispense that follows",
+          "title": "Command Id"
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "refusal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PickupRefusal"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "reply_to": {
+          "title": "Reply To",
+          "type": "string"
+        },
+        "retry_after_seconds": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "with too_many_attempts: when the keypad works again",
+          "title": "Retry After Seconds"
+        },
+        "type": {
+          "const": "verify_result",
+          "default": "verify_result",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "reply_to",
+        "ok",
+        "refusal",
+        "retry_after_seconds",
+        "command_id"
+      ],
+      "title": "VerifyResult",
       "type": "object"
     },
     "Welcome": {

@@ -17,6 +17,7 @@ from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.models import (
+    DispenseCommand,
     Machine,
     MachineEvent,
     MachineSlot,
@@ -122,6 +123,9 @@ class World:
             # rows these tests created; nothing else is touched.
             await session.execute(text("SET LOCAL session_replication_role = replica"))
             await session.execute(delete(StockMovement).where(StockMovement.slot_id.in_(slot_ids)))
+            await session.execute(
+                delete(DispenseCommand).where(DispenseCommand.slot_id.in_(slot_ids))
+            )
             await session.execute(
                 delete(Order).where(
                     Order.reservation_id.in_(

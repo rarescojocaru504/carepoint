@@ -14,7 +14,13 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
-from app.models.enums import PaymentStatus, ReservationStatus, db_enum
+from app.models.enums import (
+    DispenseCommandStatus,
+    MachineErrorCode,
+    PaymentStatus,
+    ReservationStatus,
+    db_enum,
+)
 from app.models.machine import MachineSlot
 from app.models.mixins import Timestamps, UUIDPrimaryKey
 
@@ -83,3 +89,50 @@ class Order(UUIDPrimaryKey, Timestamps, Base):
     payment_reference: Mapped[str | None] = mapped_column(String(64))
 
     reservation: Mapped[Reservation] = relationship()
+
+
+class DispenseCommand(UUIDPrimaryKey, Timestamps, Base):
+    """A `dispense` sent to a machine for a reservation (ADR-018).
+
+    Its id is the command id on the wire, so a machine's result, resent after
+    any number of reconnects, always finds the one command it belongs to.
+    """
+
+    __tablename__ = "dispense_commands"
+    __table_args__ = (
+        CheckConstraint("quantity > 0 AND quantity <= 10", name="quantity_in_range"),
+        CheckConstraint(
+            "units_dispensed IS NULL OR (units_dispensed >= 0 AND units_dispensed <= quantity)",
+            name="units_dispensed_in_range",
+        ),
+        # At most one dispense in flight per reservation.
+        Index(
+            "uq_dispense_commands_open_reservation",
+            "reservation_id",
+            unique=True,
+            postgresql_where=text("status = 'open'"),
+        ),
+        Index("ix_dispense_commands_machine_id_status", "machine_id", "status"),
+    )
+
+    machine_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("machines.id", ondelete="RESTRICT"), nullable=False
+    )
+    reservation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("reservations.id", ondelete="RESTRICT"), nullable=False
+    )
+    slot_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("machine_slots.id", ondelete="RESTRICT"), nullable=False
+    )
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[DispenseCommandStatus] = mapped_column(
+        db_enum(DispenseCommandStatus, "dispense_command_status"),
+        nullable=False,
+        default=DispenseCommandStatus.OPEN,
+        server_default=DispenseCommandStatus.OPEN.value,
+    )
+    units_dispensed: Mapped[int | None] = mapped_column(Integer)
+    error_code: Mapped[MachineErrorCode | None] = mapped_column(
+        db_enum(MachineErrorCode, "machine_error_code")
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

@@ -8,7 +8,7 @@ long would serve stale rows and pin a pooled connection.
 
 import logging
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
@@ -18,19 +18,32 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.models import Machine, MachineEventKind, MachineStatus
 from app.schemas.machine_protocol import (
     Ack,
+    Dispense,
+    DispenseResult,
     Error,
     ErrorEvent,
     Heartbeat,
     InvalidMessageError,
     MachineMessage,
+    PickupRefusal,
     ProtocolErrorCode,
     ServerMessage,
     StockReport,
     Telemetry,
+    VerifyCode,
+    VerifyResult,
     parse_machine_message,
 )
-from app.services import machine_telemetry
+from app.services import machine_telemetry, pickups
 from app.services.machine_telemetry import StockReportError
+from app.services.payments import PaymentProvider
+from app.services.pickup_codes import InvalidPickupCodeError, TooManyAttemptsError
+from app.services.pickups import (
+    IssuedDispense,
+    MachineUnavailableError,
+    PickupInProgressError,
+    UnknownCommandError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -57,18 +70,32 @@ class MachineConnection:
     connection_id: str
     sessions: async_sessionmaker[AsyncSession]
     redis: Redis
+    provider: PaymentProvider
 
 
 @dataclass(frozen=True)
 class Outcome:
     reply: ServerMessage
     rejected: bool  # counts towards the connection's invalid-message limit
+    follow_up: list[ServerMessage] = field(default_factory=list)  # sent after the reply
+
+
+def dispense_message(issued: IssuedDispense) -> Dispense:
+    return Dispense(
+        command_id=issued.command_id,
+        reservation_id=issued.reservation_id,
+        slot=issued.slot_code,
+        quantity=issued.quantity,
+    )
 
 
 async def open_connection(
-    sessions: async_sessionmaker[AsyncSession], redis: Redis, machine: Machine
+    sessions: async_sessionmaker[AsyncSession],
+    redis: Redis,
+    provider: PaymentProvider,
+    machine: Machine,
 ) -> MachineConnection:
-    connection = MachineConnection(machine.id, uuid.uuid4().hex, sessions, redis)
+    connection = MachineConnection(machine.id, uuid.uuid4().hex, sessions, redis, provider)
     await redis.set(
         _CONNECTION_KEY.format(machine_id=machine.id),
         connection.connection_id,
@@ -78,6 +105,13 @@ async def open_connection(
         await machine_telemetry.record_connection(session, machine.id, MachineEventKind.CONNECTED)
     logger.info("Machine %s connected (%s)", machine.serial_number, connection.connection_id)
     return connection
+
+
+async def pending_commands(connection: MachineConnection) -> list[Dispense]:
+    """Commands to (re)send after `welcome`: the machine may have missed them."""
+    async with connection.sessions() as session:
+        issued = await pickups.commands_to_resend(session, connection.machine_id)
+    return [dispense_message(command) for command in issued]
 
 
 async def is_current(connection: MachineConnection) -> bool:
@@ -175,4 +209,57 @@ async def _dispatch(
                 return Outcome(
                     Error(reply_to=message.id, code=exc.code, detail=exc.detail), rejected=True
                 )
+        case VerifyCode():
+            return await _verify(connection, session, message)
+        case DispenseResult():
+            try:
+                await pickups.record_dispense_result(
+                    session,
+                    connection.redis,
+                    connection.provider,
+                    machine_id,
+                    message.command_id,
+                    dispensed=message.outcome == "dispensed",
+                    units_dispensed=message.units_dispensed,
+                    error_code=message.error_code,
+                )
+            except UnknownCommandError as exc:
+                error = Error(
+                    reply_to=message.id, code=ProtocolErrorCode.UNKNOWN_COMMAND, detail=str(exc)
+                )
+                return Outcome(error, rejected=True)
+            except pickups.InconsistentResultError as exc:
+                error = Error(
+                    reply_to=message.id, code=ProtocolErrorCode.OUT_OF_RANGE, detail=str(exc)
+                )
+                return Outcome(error, rejected=True)
     return Outcome(Ack(reply_to=message.id), rejected=False)
+
+
+async def _verify(
+    connection: MachineConnection, session: AsyncSession, message: VerifyCode
+) -> Outcome:
+    """A wrong code is the customer's mistake, not the machine's: it is refused
+    in `verify_result` and never counts towards the invalid-message limit (the
+    per-machine wrong-code lockout handles guessing, ADR-016)."""
+
+    def refused(refusal: PickupRefusal, retry_after: int | None = None) -> Outcome:
+        result = VerifyResult(
+            reply_to=message.id, ok=False, refusal=refusal, retry_after_seconds=retry_after
+        )
+        return Outcome(result, rejected=False)
+
+    try:
+        issued = await pickups.request_pickup(
+            session, connection.redis, connection.machine_id, message.credential
+        )
+    except TooManyAttemptsError as exc:
+        return refused(PickupRefusal.TOO_MANY_ATTEMPTS, exc.retry_after_seconds)
+    except InvalidPickupCodeError:
+        return refused(PickupRefusal.INVALID_CODE)
+    except PickupInProgressError:
+        return refused(PickupRefusal.PICKUP_IN_PROGRESS)
+    except MachineUnavailableError:
+        return refused(PickupRefusal.MACHINE_UNAVAILABLE)
+    result = VerifyResult(reply_to=message.id, ok=True, command_id=issued.command_id)
+    return Outcome(result, rejected=False, follow_up=[dispense_message(issued)])
