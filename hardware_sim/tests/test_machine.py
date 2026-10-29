@@ -290,3 +290,25 @@ async def test_server_commands_after_welcome_are_handled(gateway: Gateway, start
     [result] = await fake.wait_for("dispense_result")
     assert result["command_id"] == "c-7"
     assert machine.state.counts["A1"] == 4
+
+
+async def test_operator_restock_is_counted_once_and_confirmed(
+    gateway: Gateway, start: Start
+) -> None:
+    fake, _ = gateway
+    machine = await start()
+    await fake.wait_for("heartbeat")
+    command = {"type": "adjust_stock", "command_id": "a-1", "slot": "A1", "delta": 4,
+               "reason": "restock"}  # fmt: skip
+
+    await fake.push(command)
+    reports = await fake.wait_for("stock_report", count=2)
+    assert reports[-1]["slots"] == [{"slot": "A1", "quantity": 9}]
+    await fake.push(command)  # delivered twice: counted once
+    reports = await fake.wait_for("stock_report", count=3)
+    assert reports[-1]["slots"] == [{"slot": "A1", "quantity": 9}]
+    assert machine.state.counts["A1"] == 9
+
+    await fake.push(command | {"command_id": "a-2", "delta": -20, "reason": "adjustment"})
+    await fake.wait_for("stock_report", count=4)
+    assert machine.state.counts["A1"] == 0  # never below zero

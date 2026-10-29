@@ -1,6 +1,7 @@
 """Machine gateway over a real WebSocket: handshake, telemetry, stock
 reconciliation and the protocol's defences against a misbehaving machine."""
 
+import asyncio
 import json
 import time
 import uuid
@@ -8,6 +9,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from redis.asyncio import Redis
@@ -15,6 +17,7 @@ from sqlalchemy import select, update
 from websockets.exceptions import InvalidStatus
 
 from app.core.config import get_settings
+from app.core.security import create_access_token
 from app.models import (
     Machine,
     MachineEvent,
@@ -23,6 +26,8 @@ from app.models import (
     MachineStatus,
     StockMovement,
     StockMovementReason,
+    User,
+    UserRole,
 )
 from app.schemas.machine_protocol import (
     InvalidMessageError,
@@ -492,3 +497,85 @@ def test_published_json_schema_matches_the_code() -> None:
         "docs/machine-protocol.schema.json is stale: run "
         "`python -m app.scripts.export_protocol_schema > ../docs/machine-protocol.schema.json`"
     )
+
+
+# --- operators and the live connection (ADR-021) ---------------------------------
+
+
+async def _operator_headers(world: World) -> dict[str, str]:
+    operator = User(email=f"op-{uuid.uuid4().hex[:10]}@example.com", password_hash="!",
+                    full_name="Operator", role=UserRole.OPERATOR)  # fmt: skip
+    await world.add(operator)
+    return {"Authorization": f"Bearer {create_access_token(operator.id, operator.role)[0]}"}
+
+
+def _http(gateway_url: str) -> httpx.AsyncClient:
+    return httpx.AsyncClient(base_url=gateway_url.replace("ws://", "http://"), timeout=10)
+
+
+async def test_operator_restock_reaches_the_connected_machine(
+    make_machine: MakeMachine, world: World, gateway_url: str
+) -> None:
+    fake, _, slots = await make_machine({"A1": 2})
+    await fake.connect()
+    headers = await _operator_headers(world)
+
+    async with _http(gateway_url) as http:
+        response = await http.post(
+            "/api/v1/admin/stock-movements",
+            json={"slot_id": str(slots["A1"].id), "reason": "restock", "delta": 5},
+            headers=headers,
+        )
+    assert response.status_code == 201, response.text
+    assert response.json()["machine_notified"] is True
+
+    command = await fake.recv()
+    assert command | {"command_id": None} == {
+        "type": "adjust_stock", "command_id": None, "slot": "A1", "delta": 5, "reason": "restock",
+    }  # fmt: skip
+    assert (await _slot(world, slots["A1"].id)).quantity == 7
+    # The machine confirms with a stock report that matches: nothing to correct.
+    await fake.request("stock_report", slots=[{"slot": "A1", "quantity": 7}])
+    assert await _corrections(world, slots["A1"].id) == []
+
+
+async def test_disconnect_shows_offline_at_once_and_reconnect_online(
+    make_machine: MakeMachine, world: World, gateway_url: str
+) -> None:
+    fake, machine, _ = await make_machine()
+    headers = await _operator_headers(world)
+
+    async def online() -> bool:
+        async with _http(gateway_url) as http:
+            detail = await http.get(f"/api/v1/admin/machines/{machine.id}", headers=headers)
+        return bool(detail.json()["online"])
+
+    await fake.connect()
+    assert await online()
+    await fake.close()
+
+    async def offline() -> bool:
+        return not await online()
+
+    await eventually(offline, within=3)  # not the 90 s online window
+    await fake.connect()
+    await eventually(online, within=3)
+
+
+async def test_superseded_connection_closing_does_not_mark_offline(
+    make_machine: MakeMachine, world: World
+) -> None:
+    old, machine, _ = await make_machine()
+    await old.connect()
+    new = FakeMachine(old.base_url, old.serial_number, old.key)
+    await new.connect()
+
+    await old.send("heartbeat", firmware_version="1", uptime_seconds=1)
+    assert (await old.closed())[0] == 4000
+    await asyncio.sleep(0.2)
+
+    stored = await _machine(world, machine.id)
+    assert stored.disconnected_at is None
+    kinds = [e.kind for e in await _events(world, machine.id)]
+    assert kinds == [MachineEventKind.CONNECTED, MachineEventKind.CONNECTED]
+    await new.close()

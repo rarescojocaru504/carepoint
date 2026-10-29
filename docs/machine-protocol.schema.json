@@ -21,6 +21,47 @@
       "title": "Ack",
       "type": "object"
     },
+    "AdjustStock": {
+      "description": "Command: an operator put units into (`delta` > 0) or took them out of\n(`delta` < 0) `slot`. Add `delta` to your count, once per `command_id`, then\nsend a `stock_report` for the slot.",
+      "properties": {
+        "command_id": {
+          "format": "uuid",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "delta": {
+          "title": "Delta",
+          "type": "integer"
+        },
+        "reason": {
+          "enum": [
+            "restock",
+            "adjustment"
+          ],
+          "title": "Reason",
+          "type": "string"
+        },
+        "slot": {
+          "title": "Slot",
+          "type": "string"
+        },
+        "type": {
+          "const": "adjust_stock",
+          "default": "adjust_stock",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "command_id",
+        "slot",
+        "delta",
+        "reason"
+      ],
+      "title": "AdjustStock",
+      "type": "object"
+    },
     "Dispense": {
       "description": "Command: release `quantity` units from `slot`. Execute each `command_id`\nat most once; if it arrives again, resend its result instead.",
       "properties": {
@@ -365,6 +406,7 @@
       "discriminator": {
         "mapping": {
           "ack": "#/$defs/Ack",
+          "adjust_stock": "#/$defs/AdjustStock",
           "dispense": "#/$defs/Dispense",
           "error": "#/$defs/Error",
           "verify_result": "#/$defs/VerifyResult",
@@ -387,6 +429,9 @@
         },
         {
           "$ref": "#/$defs/Dispense"
+        },
+        {
+          "$ref": "#/$defs/AdjustStock"
         }
       ]
     },

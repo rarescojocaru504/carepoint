@@ -217,8 +217,20 @@ class Dispense(_FromServer):
     quantity: int
 
 
+class AdjustStock(_FromServer):
+    """Command: an operator put units into (`delta` > 0) or took them out of
+    (`delta` < 0) `slot`. Add `delta` to your count, once per `command_id`, then
+    send a `stock_report` for the slot."""
+
+    type: Literal["adjust_stock"] = "adjust_stock"
+    command_id: uuid.UUID
+    slot: str
+    delta: int
+    reason: Literal["restock", "adjustment"]
+
+
 ServerMessage = Annotated[
-    Welcome | Ack | Error | VerifyResult | Dispense, Field(discriminator="type")
+    Welcome | Ack | Error | VerifyResult | Dispense | AdjustStock, Field(discriminator="type")
 ]
 
 

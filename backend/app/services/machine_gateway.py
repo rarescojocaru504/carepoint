@@ -54,6 +54,22 @@ logger = logging.getLogger(__name__)
 _CONNECTION_KEY = "machine-connection:{machine_id}"
 _CONNECTION_TTL_SECONDS = 24 * 3600
 
+# Server-initiated commands for a machine are published here; whichever worker
+# holds the machine's connection forwards them (ADR-021).
+_COMMAND_CHANNEL = "cp:machine-commands:{machine_id}"
+
+
+def command_channel(machine_id: uuid.UUID) -> str:
+    return _COMMAND_CHANNEL.format(machine_id=machine_id)
+
+
+async def send_command(redis: Redis, machine_id: uuid.UUID, message: ServerMessage) -> bool:
+    """Deliver a command to the machine's live connection, if it has one.
+    Returns whether any connection received it."""
+    receivers: int = await redis.publish(command_channel(machine_id), message.model_dump_json())
+    return receivers > 0
+
+
 # Delete the key only if it still names this connection.
 _RELEASE_SCRIPT = """
 if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end
@@ -151,17 +167,20 @@ async def is_current(connection: MachineConnection) -> bool:
 
 async def close_connection(connection: MachineConnection) -> None:
     """Best effort: a failure here must not mask why the connection ended."""
+    newest = True  # if Redis cannot tell, mark offline; the next heartbeat corrects it
     try:
-        await connection.redis.register_script(_RELEASE_SCRIPT)(
-            keys=[_CONNECTION_KEY.format(machine_id=connection.machine_id)],
-            args=[connection.connection_id],
+        newest = bool(
+            await connection.redis.register_script(_RELEASE_SCRIPT)(
+                keys=[_CONNECTION_KEY.format(machine_id=connection.machine_id)],
+                args=[connection.connection_id],
+            )
         )
     except RedisError:
         logger.warning("Could not release connection key of %s", connection.machine_id)
     try:
         async with connection.sessions() as session:
             await machine_telemetry.record_connection(
-                session, connection.machine_id, MachineEventKind.DISCONNECTED
+                session, connection.machine_id, MachineEventKind.DISCONNECTED, offline=newest
             )
     except Exception:
         logger.exception("Could not record disconnect of machine %s", connection.machine_id)

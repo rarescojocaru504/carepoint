@@ -14,6 +14,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, WebSocket
 from fastapi.responses import JSONResponse
+from redis.asyncio.client import PubSub
 from redis.exceptions import RedisError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -119,8 +120,13 @@ async def machine_gateway_socket(
 
     await websocket.accept(subprotocol=SUBPROTOCOL)
     connection = await machine_gateway.open_connection(sessions, redis, provider, machine)
+    send = _Sender(websocket)
+    # Subscribed before `welcome`, so no command published meanwhile is missed.
+    pubsub = redis.pubsub()
+    await pubsub.subscribe(machine_gateway.command_channel(machine.id))
+    forwarder: asyncio.Task[None] | None = None
     try:
-        await websocket.send_text(
+        await send(
             Welcome(
                 machine_id=machine.id,
                 serial_number=machine.serial_number,
@@ -131,13 +137,48 @@ async def machine_gateway_socket(
         )
         # Dispenses the machine may have missed while disconnected (ADR-018).
         for command in await machine_gateway.pending_commands(connection):
-            await websocket.send_text(command.model_dump_json())
-        await _serve(websocket, connection)
+            await send(command.model_dump_json())
+        forwarder = asyncio.create_task(_forward_commands(pubsub, send, machine.serial_number))
+        await _serve(websocket, connection, send)
     finally:
+        if forwarder is not None:
+            forwarder.cancel()
+            await asyncio.gather(forwarder, return_exceptions=True)
+        try:
+            await pubsub.aclose()  # type: ignore[no-untyped-call]  # untyped in redis-py 5.2
+        except RedisError:
+            logger.warning("Could not close command subscription of %s", machine.serial_number)
         await machine_gateway.close_connection(connection)
 
 
-async def _serve(websocket: WebSocket, connection: machine_gateway.MachineConnection) -> None:
+class _Sender:
+    """Serialises frames from the message loop and the command forwarder."""
+
+    def __init__(self, websocket: WebSocket) -> None:
+        self._websocket = websocket
+        self._lock = asyncio.Lock()
+
+    async def __call__(self, text: str) -> None:
+        async with self._lock:
+            await self._websocket.send_text(text)
+
+
+async def _forward_commands(pubsub: PubSub, send: _Sender, serial: str) -> None:
+    """Relay commands published for this machine (e.g. an operator's restock)."""
+    while True:
+        try:
+            message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+        except RedisError:
+            logger.warning("Command channel of %s unavailable; retrying", serial)
+            await asyncio.sleep(1)
+            continue
+        if message is not None and message["type"] == "message":
+            await send(message["data"])
+
+
+async def _serve(
+    websocket: WebSocket, connection: machine_gateway.MachineConnection, send: _Sender
+) -> None:
     settings = get_settings()
     budget = _MessageBudget(RateLimitRule.parse(settings.machine_ws_rate_limit))
     rejected = 0
@@ -171,9 +212,9 @@ async def _serve(websocket: WebSocket, connection: machine_gateway.MachineConnec
         except MachineDecommissionedError:
             await websocket.close(CLOSE_DECOMMISSIONED, "machine decommissioned")
             return
-        await websocket.send_text(outcome.reply.model_dump_json())
+        await send(outcome.reply.model_dump_json())
         for message in outcome.follow_up:
-            await websocket.send_text(message.model_dump_json())
+            await send(message.model_dump_json())
         rejected += outcome.rejected
         if rejected >= settings.machine_ws_max_invalid_messages:
             await websocket.close(CLOSE_POLICY_VIOLATION, "too many invalid messages")

@@ -145,7 +145,7 @@ Rules for working through the roadmap:
 - **Done when:** the CI smoke test drives the kiosk with Playwright: enter a code, see the item dispensed, and see stock go down.
 
 ### Phase 8 — Operator dashboard
-- [ ] Admin API (`/api/v1/admin/*`, Phase 2 roles):
+- [x] Admin API (`/api/v1/admin/*`, Phase 2 roles; ADR-021, #20):
   - list machines with status and last-seen time;
   - stock per slot;
   - list and cancel reservations;

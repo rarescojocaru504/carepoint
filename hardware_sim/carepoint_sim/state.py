@@ -30,6 +30,7 @@ class MachineState:
     executed: dict[str, dict[str, Any]] = field(default_factory=dict)  # command -> result
     outbox: list[str] = field(default_factory=list)  # results not yet acknowledged
     in_flight: InFlight | None = None
+    adjustments: list[str] = field(default_factory=list)  # applied adjust_stock commands
 
     def record_result(self, command_id: str, result: dict[str, Any]) -> None:
         self.executed[command_id] = result
@@ -59,6 +60,7 @@ class StateStore:
             executed=raw.get("executed", {}),
             outbox=raw.get("outbox", []),
             in_flight=InFlight(**in_flight) if in_flight else None,
+            adjustments=raw.get("adjustments", []),
         )
         if state.in_flight is not None:
             interrupted = state.in_flight

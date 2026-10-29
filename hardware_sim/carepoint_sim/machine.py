@@ -196,6 +196,8 @@ class SimulatedMachine:
                     future.set_result(message)
             elif kind == "dispense":
                 self._spawn(self._on_dispense(message))
+            elif kind == "adjust_stock":
+                self._spawn(self._on_adjust_stock(message))
             else:
                 logger.warning("%s: unexpected message %s", self.serial, kind)
         raise _Disconnected(f"closed with {ws.close_code}")
@@ -315,6 +317,28 @@ class SimulatedMachine:
     async def _quietly(self, action: Callable[[], Any]) -> None:
         with contextlib.suppress(NotConnectedError, TimeoutError):
             await action()
+
+    async def _on_adjust_stock(self, command: dict[str, Any]) -> None:
+        """An operator loaded or removed units: count them, once per command,
+        then confirm with a stock report for the slot."""
+        command_id, slot = command["command_id"], command["slot"]
+        if command_id not in self.state.adjustments and slot in self.state.counts:
+            capacity = self.slots[slot].capacity if slot in self.slots else None
+            counted = self.state.counts[slot] + command["delta"]
+            self.state.counts[slot] = max(
+                0, counted if capacity is None else min(counted, capacity)
+            )
+            self.state.adjustments = [*self.state.adjustments[-199:], command_id]
+            self._save()
+            logger.info("%s: %s %+d on %s", self.serial, command["reason"], command["delta"], slot)
+            self._publish("adjusted", slot=slot, delta=command["delta"])
+        if slot in self.state.counts:
+            await self._quietly(
+                lambda: self._request(
+                    {"type": "stock_report",
+                     "slots": [{"slot": slot, "quantity": self.state.counts[slot]}]}
+                )
+            )  # fmt: skip
 
     # --- dispensing (§6) ---------------------------------------------------------
 

@@ -1,6 +1,6 @@
 # CarePoint machine protocol
 
-**Version 1** (WebSocket subprotocol `carepoint.v1`), revision 3: the connection, telemetry, stock counts and pickups (§3–§6). A working reference client is the hardware simulator in [`hardware_sim/`](../hardware_sim), written from this document without any backend code.
+**Version 1** (WebSocket subprotocol `carepoint.v1`), revision 4: the connection, telemetry, stock counts and pickups (§3–§6). A working reference client is the hardware simulator in [`hardware_sim/`](../hardware_sim), written from this document without any backend code.
 
 This is the contract between the CarePoint backend and a vending machine. Anything that follows it can replace the simulator without any change to the backend: a Raspberry Pi, an ESP32 or a Python daemon. Every message is described here, and the exact JSON Schema of every message is in [`machine-protocol.schema.json`](machine-protocol.schema.json). That file is generated from the server's own validation models, and a test fails if the two drift apart. The design rationale is in ADR-010 and ADR-017 in [`architecture-decisions.md`](architecture-decisions.md).
 
@@ -55,7 +55,7 @@ The server never says which check failed; the reason is written to its log.
   - an `ack`, meaning it was applied;
   - a `verify_result`, for `verify_code`; or
   - an `error`, meaning nothing of it was applied (§4).
-- **Server commands:** the server also sends **commands** of its own (`dispense`). They have no `reply_to` and can arrive at any time, including straight after `welcome`.
+- **Server commands:** the server also sends **commands** of its own (`dispense`, `adjust_stock`). They have no `reply_to` and can arrive at any time, including straight after `welcome`.
 - **Strict validation, no coercion:** the server rejects the message instead of guessing:
   - unknown fields;
   - a string where a number is expected (`"5"`), or `true` for a number;
@@ -197,6 +197,18 @@ Reply: `verify_result`. If it is `ok`, a `dispense` command follows straight awa
 
 Release `quantity` units from `slot`, then report what happened with `dispense_result`. The rules in §6 are what make a dispense safe across disconnects.
 
+### Server → machine: `adjust_stock` (command)
+
+```json
+{"type": "adjust_stock", "command_id": "5d0e…", "slot": "A1", "delta": 6, "reason": "restock"}
+```
+
+An operator recorded in the dashboard that they put units into the slot (`restock`, `delta` > 0) or took some out (`adjustment`, either sign). The server already counts them, so:
+- **Update the count:** add `delta` to your own count for the slot, at most once per `command_id`. Never go below 0 or above the slot's capacity.
+- **Confirm:** send a `stock_report` for the slot.
+
+A machine with sensors that sees the change by itself just sends the `stock_report`. Operators can only record a change while the machine is online, because a machine that never heard of it would undo it with its next stock report.
+
 ### Machine → server: `dispense_result`
 
 ```json
@@ -333,3 +345,4 @@ machine                                             server
 | 1 | 2026-10-29 | Handshake, `welcome`, `heartbeat`, `telemetry`, `stock_report`, `error_event`, `ack`, `error`, close codes |
 | 2 | 2026-10-29 | Pickups: `verify_code`, `verify_result`, `dispense`, `dispense_result`, the `unknown_command` error, §6 dispensing rules; `stock_report` leaves slots mid-dispense alone |
 | 3 | 2026-10-29 | `welcome.slots`: the planogram, so a machine needs no local slot configuration |
+| 4 | 2026-10-29 | `adjust_stock`: restocks and adjustments recorded by operators; a clean disconnect now shows the machine offline at once |
