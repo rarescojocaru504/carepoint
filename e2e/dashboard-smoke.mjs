@@ -8,6 +8,7 @@
 //
 // Screenshots of each step land in e2e/artifacts/.
 
+import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { chromium } from "playwright";
@@ -15,7 +16,7 @@ import { chromium } from "playwright";
 const DASHBOARD = process.env.DASHBOARD_URL ?? "http://localhost:3000";
 const API = process.env.API_URL ?? "http://localhost:8000/api/v1";
 const KIOSK = process.env.KIOSK_URL ?? "http://localhost:8080";
-const ARTIFACTS = new URL("./artifacts/", import.meta.url).pathname;
+const ARTIFACTS = fileURLToPath(new URL("./artifacts/", import.meta.url));
 const OPERATOR = { email: "operator@carepoint.demo", password: "carepoint-operator-demo" };
 const CUSTOMER = { email: "customer@carepoint.demo", password: "carepoint-customer-demo" };
 const LIVE = { timeout: 15_000 }; // a notice, not a reload, must bring the change
@@ -38,7 +39,7 @@ async function signIn(page, who) {
 }
 
 function compose(...args) {
-  execFileSync("docker", ["compose", ...args], { stdio: "inherit", cwd: new URL("..", import.meta.url).pathname });
+  execFileSync("docker", ["compose", ...args], { stdio: "inherit", cwd: fileURLToPath(new URL("..", import.meta.url)) });
 }
 
 await mkdir(ARTIFACTS, { recursive: true });

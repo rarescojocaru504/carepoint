@@ -88,7 +88,7 @@ docker compose down --volumes
 RESERVATION_HOLD_SECONDS=60 docker compose up --build --wait
 ```
 
-For this to work, add `RESERVATION_HOLD_SECONDS: ${RESERVATION_HOLD_SECONDS:-900}` to the backend's `environment` in `docker-compose.yml` first. That is a small Phase 11 "one-command demo" task.
+Compose passes it to the backend; you can also put it in a `.env` file next to `docker-compose.yml` (see `.env.example`). Holds already running keep their original expiry.
 
 ---
 
