@@ -54,6 +54,16 @@ class OrderRead(BaseModel):
     updated_at: datetime
 
 
+class PickupCredentialRead(BaseModel):
+    """Shown once: only a keyed hash is stored. Lost it? POST .../pickup-code."""
+
+    code: str
+    qr_payload: str
+    expires_at: datetime
+
+
 class CheckoutResponse(BaseModel):
     reservation: ReservationRead
     order: OrderRead
+    # Present when the checkout created the order; null on an idempotent repeat.
+    pickup: PickupCredentialRead | None

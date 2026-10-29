@@ -6,6 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Development-only default; production refuses to start with it (see validator).
 DEV_JWT_SECRET = "dev-only-insecure-jwt-secret-change-me-in-production"  # noqa: S105
+DEV_PICKUP_CODE_PEPPER = "dev-only-insecure-pickup-pepper-change-me"
 
 # "<max requests>/<window seconds>", e.g. "5/60".
 RateLimitSpec = Annotated[str, Field(pattern=r"^[1-9][0-9]*/[1-9][0-9]*$")]
@@ -56,6 +57,14 @@ class Settings(BaseSettings):
     rate_limit_reservation_user: RateLimitSpec = "20/60"
     # Checkout attempts per user: blunts card-testing with stolen card numbers.
     rate_limit_checkout_user: RateLimitSpec = "10/60"
+
+    # --- pickup codes (ADR-016) -----------------------------------------------------
+    # Server-side key for hashing pickup codes; a database leak alone cannot
+    # recover codes from their hashes without it.
+    pickup_code_pepper: SecretStr = SecretStr(DEV_PICKUP_CODE_PEPPER)
+    # Wrong codes tolerated per machine per window before it must wait.
+    rate_limit_pickup_failures_machine: RateLimitSpec = "20/60"
+    rate_limit_pickup_rotate_user: RateLimitSpec = "5/60"
     # Background jobs (ADR-013). Disabled in the test suite, which drives them directly.
     background_workers_enabled: bool = True
     expiry_sweep_interval_seconds: int = Field(default=15, ge=1, le=600)
@@ -73,6 +82,11 @@ class Settings(BaseSettings):
             secret = self.jwt_secret.get_secret_value()
             if secret == DEV_JWT_SECRET or len(secret) < 32:
                 raise ValueError("JWT_SECRET must be set to >= 32 random characters in production")
+            pepper = self.pickup_code_pepper.get_secret_value()
+            if pepper == DEV_PICKUP_CODE_PEPPER or len(pepper) < 32:
+                raise ValueError(
+                    "PICKUP_CODE_PEPPER must be set to >= 32 random characters in production"
+                )
         return self
 
 

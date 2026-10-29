@@ -8,11 +8,13 @@ from app.core.config import get_settings
 from app.schemas.reservation import (
     CheckoutRequest,
     CheckoutResponse,
+    PickupCredentialRead,
     ReservationCreate,
     ReservationRead,
 )
 from app.services import checkout as checkout_service
 from app.services import orders as order_service
+from app.services import pickup_codes
 from app.services import reservations as service
 from app.services.payments import (
     PaymentDeclinedError,
@@ -206,8 +208,47 @@ async def checkout(
         ) from None
     if not result.created:
         response.status_code = status.HTTP_200_OK
+    response.headers["Cache-Control"] = "no-store"  # may carry a pickup code
     view = await service.get_reservation(session, user, reservation_id)
     return CheckoutResponse(
         reservation=_out(view),
         order=await order_service.order_for_reservation(session, reservation_id),
+        pickup=_pickup_out(result.pickup) if result.pickup else None,
     )
+
+
+def _pickup_out(credential: pickup_codes.PickupCredential) -> PickupCredentialRead:
+    return PickupCredentialRead(
+        code=credential.code, qr_payload=credential.qr_payload, expires_at=credential.expires_at
+    )
+
+
+async def _limit_rotate(user: CurrentUser, redis: RedisClient) -> None:
+    await enforce_rate_limit(
+        redis, "pickup-rotate-user", str(user.id), get_settings().rate_limit_pickup_rotate_user
+    )
+
+
+@router.post(
+    "/{reservation_id}/pickup-code",
+    response_model=PickupCredentialRead,
+    dependencies=[Depends(_limit_rotate)],
+    responses={
+        404: {"description": "Not found (or not yours)"},
+        409: {"description": "Not paid, or no longer valid"},
+    },
+)
+async def rotate_pickup_code(
+    reservation_id: uuid.UUID, user: CurrentUser, session: DbSession, response: Response
+) -> PickupCredentialRead:
+    """Issue a new pickup code (lost or leaked code). The old one stops working."""
+    try:
+        credential = await pickup_codes.rotate_code(session, user, reservation_id)
+    except pickup_codes.PickupReservationNotFoundError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Reservation not found") from None
+    except pickup_codes.NotPickupableError as exc:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, {"code": "not_pickupable", "message": str(exc)}
+        ) from None
+    response.headers["Cache-Control"] = "no-store"
+    return _pickup_out(credential)

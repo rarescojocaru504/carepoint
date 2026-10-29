@@ -456,7 +456,11 @@ def test_production_refuses_default_or_short_jwt_secret() -> None:
         Settings(environment="production")
     with pytest.raises(ValidationError, match="JWT_SECRET"):
         Settings(environment="production", jwt_secret=SecretStr("too-short"))
-    Settings(environment="production", jwt_secret=SecretStr("x" * 40))
+    Settings(
+        environment="production",
+        jwt_secret=SecretStr("x" * 40),
+        pickup_code_pepper=SecretStr("y" * 40),
+    )
 
 
 def test_rate_limit_spec_validated() -> None:

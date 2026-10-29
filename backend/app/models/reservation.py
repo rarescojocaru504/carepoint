@@ -9,6 +9,7 @@ from sqlalchemy import (
     Integer,
     String,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -28,6 +29,15 @@ class Reservation(UUIDPrimaryKey, Timestamps, Base):
         Index("ix_reservations_slot_id_status", "slot_id", "status"),
         # The expiry sweeper scans held reservations by expiry time.
         Index("ix_reservations_status_expires_at", "status", "expires_at"),
+        # A pickup code is looked up by its hash, and no two *active* (paid)
+        # reservations may share one. The hash covers machine id + code, so this
+        # also means codes are unique per machine while in use (ADR-016).
+        Index(
+            "uq_reservations_active_pickup_code",
+            "pickup_code_hash",
+            unique=True,
+            postgresql_where=text("status = 'paid'"),
+        ),
     )
 
     user_id: Mapped[uuid.UUID] = mapped_column(
