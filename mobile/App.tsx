@@ -10,6 +10,8 @@ import { API_URL } from "./src/config";
 import type { RootStackParamList } from "./src/navigation";
 import { MachineScreen } from "./src/screens/MachineScreen";
 import { MapScreen } from "./src/screens/MapScreen";
+import { OrdersScreen } from "./src/screens/OrdersScreen";
+import { ReservationScreen } from "./src/screens/ReservationScreen";
 import { SignInScreen } from "./src/screens/SignInScreen";
 import { useAuth } from "./src/store/auth";
 
@@ -33,9 +35,7 @@ export default function App() {
       ) : status === "unreachable" ? (
         <Centered>
           <Text style={styles.title}>Can&apos;t reach CarePoint</Text>
-          <Text style={styles.muted}>
-            Check your connection. The app is talking to {API_URL}.
-          </Text>
+          <Text style={styles.muted}>Check your connection. The app is talking to {API_URL}.</Text>
           <Button title="Try again" onPress={() => void restore()} />
         </Centered>
       ) : (
@@ -46,12 +46,31 @@ export default function App() {
                 <Stack.Screen
                   name="Map"
                   component={MapScreen}
-                  options={{ title: "Nearby", headerRight: () => <SignOutButton /> }}
+                  options={({ navigation }) => ({
+                    title: "Nearby",
+                    headerLeft: () => <SignOutButton />,
+                    headerRight: () => (
+                      <HeaderButton
+                        title="My orders"
+                        onPress={() => navigation.navigate("Orders")}
+                      />
+                    ),
+                  })}
                 />
                 <Stack.Screen
                   name="Machine"
                   component={MachineScreen}
                   options={({ route }) => ({ title: route.params.name })}
+                />
+                <Stack.Screen
+                  name="Reservation"
+                  component={ReservationScreen}
+                  options={{ title: "Your reservation" }}
+                />
+                <Stack.Screen
+                  name="Orders"
+                  component={OrdersScreen}
+                  options={{ title: "My orders" }}
                 />
               </>
             ) : (
@@ -70,9 +89,13 @@ export default function App() {
 
 function SignOutButton() {
   const signOut = useAuth((s) => s.signOut);
+  return <HeaderButton title="Sign out" onPress={() => void signOut()} />;
+}
+
+function HeaderButton({ title, onPress }: { title: string; onPress: () => void }) {
   return (
-    <Pressable accessibilityRole="button" onPress={() => void signOut()} hitSlop={8}>
-      <Text style={styles.headerButton}>Sign out</Text>
+    <Pressable accessibilityRole="button" onPress={onPress} hitSlop={8}>
+      <Text style={styles.headerButton}>{title}</Text>
     </Pressable>
   );
 }

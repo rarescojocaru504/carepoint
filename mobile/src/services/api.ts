@@ -10,6 +10,7 @@ import createClient from "openapi-fetch";
 
 import { API_URL } from "../config";
 import type { components, paths } from "./api-types";
+import { noteServerDate } from "./clock";
 import {
   clearTokens,
   getAccessToken,
@@ -97,14 +98,21 @@ async function outgoing(request: Request): Promise<Outgoing> {
     headers[key] = value;
   });
   const text = request.method === "GET" || request.method === "HEAD" ? "" : await request.text();
-  return { url: request.url, method: request.method, headers, body: text === "" ? undefined : text };
+  return {
+    url: request.url,
+    method: request.method,
+    headers,
+    body: text === "" ? undefined : text,
+  };
 }
 
-function send(out: Outgoing, accessToken: string | null): Promise<Response> {
+async function send(out: Outgoing, accessToken: string | null): Promise<Response> {
   const headers = { ...out.headers };
   if (accessToken !== null) headers.authorization = `Bearer ${accessToken}`;
   // fetch is looked up per call, not captured at import, so tests can replace it.
-  return fetch(out.url, { method: out.method, headers, body: out.body });
+  const response = await fetch(out.url, { method: out.method, headers, body: out.body });
+  noteServerDate(response.headers.get("date"));
+  return response;
 }
 
 // Auth endpoints never carry the access token and never trigger a refresh.
@@ -164,17 +172,25 @@ export const api = createClient<paths>({ baseUrl: API_URL, fetch: authorizedFetc
 
 type Result<T> = { data?: T; error?: unknown; response: Response };
 
+function failure(error: unknown, response: Response): ApiError {
+  const detail: unknown =
+    error !== null && typeof error === "object" && "detail" in error
+      ? error.detail
+      : response.statusText;
+  return new ApiError(response.status, detail);
+}
+
 /** The response body, or an ApiError carrying FastAPI's `detail`. */
 export async function unwrap<T>(call: Promise<Result<T>>): Promise<T> {
   const { data, error, response } = await call;
-  if (!response.ok || data === undefined) {
-    const detail: unknown =
-      error !== null && typeof error === "object" && "detail" in error
-        ? error.detail
-        : response.statusText;
-    throw new ApiError(response.status, detail);
-  }
+  if (!response.ok || data === undefined) throw failure(error, response);
   return data;
+}
+
+/** For calls that answer 204 No Content: success, or an ApiError. */
+export async function expectOk(call: Promise<Result<unknown>>): Promise<void> {
+  const { error, response } = await call;
+  if (!response.ok) throw failure(error, response);
 }
 
 // --- auth --------------------------------------------------------------------

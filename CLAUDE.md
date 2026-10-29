@@ -176,7 +176,7 @@ Rules for working through the roadmap:
 - [x] CI: `tsc --noEmit`, ESLint and Jest, plus a check that the generated API types are current (#26).
 
 ### Phase 10 — Mobile reserve → pay → pickup flow
-- [ ] Reserve from the machine page, mock checkout, a reservation screen with a live 15-minute countdown and the pickup QR code and PIN, cancel, and order history.
+- [x] Reserve from the machine page, mock checkout, a reservation screen with a live 15-minute countdown and the pickup QR code and PIN, cancel, and order history (ADR-027, #29).
 - [ ] Live stock and reservation status pushed to the app over WebSocket or server-sent events, so a hold or expiry shows up straight away.
 - [ ] Handling for an expired hold, a machine going offline and the app losing connection.
 

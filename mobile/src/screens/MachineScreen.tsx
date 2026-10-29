@@ -1,19 +1,24 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
 
-import { Banner, Centered, colors, StateBadge } from "../components/ui";
+import { Banner, Button, Centered, colors, StateBadge } from "../components/ui";
 import { formatPrice } from "../format";
 import { machineState } from "../machineState";
+import { friendlyError } from "../messages";
 import type { ScreenProps } from "../navigation";
 import type { Schemas } from "../services/api";
 import { useMachines } from "../store/machines";
+import { useReservations } from "../store/reservations";
 
 type Slot = Schemas["SlotAvailability"];
 
-export function MachineScreen({ route }: ScreenProps<"Machine">) {
+export function MachineScreen({ route, navigation }: ScreenProps<"Machine">) {
   const { machineId } = route.params;
   const detail = useMachines((s) => s.details[machineId]);
   const loadMachine = useMachines((s) => s.loadMachine);
+  const reserve = useReservations((s) => s.reserve);
+  const [reserving, setReserving] = useState<string | null>(null);
+  const [reserveError, setReserveError] = useState<string | null>(null);
 
   useEffect(() => {
     void loadMachine(machineId);
@@ -35,6 +40,20 @@ export function MachineScreen({ route }: ScreenProps<"Machine">) {
   const units = machine.slots.reduce((sum, slot) => sum + slot.available, 0);
   const state = machineState({ ...machine, units_available: units });
 
+  const onReserve = async (slot: Slot) => {
+    setReserving(slot.slot_id);
+    setReserveError(null);
+    try {
+      const reservation = await reserve(slot.slot_id);
+      navigation.navigate("Reservation", { reservationId: reservation.id });
+    } catch (e) {
+      setReserveError(friendlyError(e));
+    } finally {
+      setReserving(null);
+      void loadMachine(machineId); // availability changed either way
+    }
+  };
+
   return (
     <FlatList
       style={styles.screen}
@@ -52,6 +71,7 @@ export function MachineScreen({ route }: ScreenProps<"Machine">) {
           <Text style={styles.muted}>{machine.address}</Text>
           <StateBadge state={state} />
           {detail?.status === "error" && <Banner tone="error">{detail.error}</Banner>}
+          {reserveError !== null && <Banner tone="error">{reserveError}</Banner>}
           {state === "offline" && (
             <Banner tone="error">
               This machine is offline right now, so nothing can be picked up here until it
@@ -64,12 +84,20 @@ export function MachineScreen({ route }: ScreenProps<"Machine">) {
         </View>
       }
       ListEmptyComponent={<Text style={styles.empty}>Nothing in stock here right now.</Text>}
-      renderItem={({ item }) => <SlotRow slot={item} />}
+      renderItem={({ item }) => (
+        <SlotRow
+          slot={item}
+          canReserve={state === "available" && reserving === null}
+          busy={reserving === item.slot_id}
+          onReserve={() => void onReserve(item)}
+        />
+      )}
     />
   );
 }
 
-function SlotRow({ slot }: { slot: Slot }) {
+function SlotRow(props: { slot: Slot; canReserve: boolean; busy: boolean; onReserve: () => void }) {
+  const { slot } = props;
   const soldOut = slot.available === 0;
   return (
     <View style={styles.row} accessibilityLabel={`${slot.product.name}, ${slot.available} left`}>
@@ -90,6 +118,14 @@ function SlotRow({ slot }: { slot: Slot }) {
         </Text>
         {slot.low_stock && !soldOut && <Text style={styles.low}>Low stock</Text>}
         <Text style={styles.slotCode}>Slot {slot.slot_code}</Text>
+        {!soldOut && (
+          <Button
+            title="Reserve"
+            busy={props.busy}
+            disabled={!props.canReserve}
+            onPress={props.onReserve}
+          />
+        )}
       </View>
     </View>
   );
@@ -112,7 +148,7 @@ const styles = StyleSheet.create({
   rowMain: { flex: 1, gap: 4 },
   name: { fontSize: 16, fontWeight: "600", color: colors.text },
   price: { fontSize: 15, color: colors.text, fontWeight: "500" },
-  stock: { alignItems: "flex-end", gap: 2 },
+  stock: { alignItems: "flex-end", gap: 4 },
   count: { fontSize: 15, fontWeight: "600", color: colors.primary },
   soldOut: { color: colors.muted },
   low: { fontSize: 12, color: colors.warning, fontWeight: "600" },
