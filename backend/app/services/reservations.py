@@ -278,11 +278,28 @@ async def cancel_reservation(
     keeps the unit locked only until its expiry (safe), never the reverse. The
     void is attempted immediately and retried by settlement if it fails.
     """
-    reservation = await session.scalar(
-        select(Reservation)
-        .where(Reservation.id == reservation_id, Reservation.user_id == user.id)
-        .with_for_update()
-    )
+    await _cancel(session, redis, provider, reservation_id, owner_id=user.id)
+
+
+async def cancel_any_reservation(
+    session: AsyncSession, redis: Redis, provider: PaymentProvider, reservation_id: uuid.UUID
+) -> None:
+    """An operator cancels a customer's reservation (same rules as the customer)."""
+    await _cancel(session, redis, provider, reservation_id, owner_id=None)
+
+
+async def _cancel(
+    session: AsyncSession,
+    redis: Redis,
+    provider: PaymentProvider,
+    reservation_id: uuid.UUID,
+    *,
+    owner_id: uuid.UUID | None,
+) -> None:
+    query = select(Reservation).where(Reservation.id == reservation_id).with_for_update()
+    if owner_id is not None:
+        query = query.where(Reservation.user_id == owner_id)
+    reservation = await session.scalar(query)
     if reservation is None:
         raise ReservationNotFoundError("reservation not found")
     if reservation.status is ReservationStatus.CANCELLED:

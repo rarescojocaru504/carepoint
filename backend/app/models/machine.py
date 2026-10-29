@@ -57,6 +57,9 @@ class Machine(UUIDPrimaryKey, Timestamps, Base):
         server_default=MachineStatus.ACTIVE.value,
     )
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # When its live gateway connection last closed (ADR-021): offline from then on
+    # until it is heard from again.
+    disconnected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     firmware_version: Mapped[str | None] = mapped_column(String(32))
     # Raw 32-byte Ed25519 public key. The private key never leaves the machine
     # (see ADR-007), so a database leak cannot be used to impersonate machines.

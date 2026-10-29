@@ -634,3 +634,54 @@ Screenshots of each step are uploaded as a CI artifact. They also serve as pitch
 
 - **No test-runner dependency:** the test is a plain Node script using the `playwright` library rather than the test runner, so it runs anywhere with one dependency.
 - **A separate CI job for the screen:** a `Kiosk (TypeScript)` job runs the strict type check and the production build.
+
+## ADR-021: Operator API (2026-10-29)
+
+`/api/v1/admin/*` is restricted to the `operator` and `admin` roles (ADR-009). The role is read from the database on every request.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /machines`, `GET /machines/{id}` | Machines with online status, last seen, telemetry, units, low-stock and sold-out slots, and active reservations. The detail view adds each slot (physical / held / available) and the latest 20 events |
+| `PATCH /machines/{id}` | `active` or `maintenance`. `decommissioned` is **admin only**, because it also cuts off the machine's live connection (ADR-017) |
+| `POST /stock-movements`, `GET /slots/{id}/movements` | Record a restock or adjustment; see the slot's ledger with who did what |
+| `GET /reservations?status=&machine_id=`, `POST /reservations/{id}/cancel` | All customers' reservations. `active` means held or paid and unexpired; `expired` includes lapsed holds not yet swept. Cancelling follows the customer's own rules: stock is released, the payment voided, and it is refused while a dispense is in progress |
+| `GET/POST /products`, `PATCH/DELETE /products/{id}` | The whole catalogue, inactive products included. A product used by any slot can't be deleted (409: deactivate it instead), so sales history stays intact |
+| `GET /kpis` | The dashboard tiles: reservations in the last 24 h and 7 days; pickup rate (dispensed ÷ finished reservations); expired holds; average time from hold to pickup; stock-outs and low-stock slots; machines online; 24-hour uptime |
+
+**Restocks reach the machine (protocol revision 4).**
+- **Why:** a machine keeps its own count (ADR-017). If the dashboard only wrote `+6` to the database, the machine's next `stock_report` would "correct" it straight back.
+- **The command:** a restock or adjustment is therefore written to the ledger with the operator as actor, mirrored to Redis, and sent to the machine as an `adjust_stock` command. The machine applies it once per `command_id` and confirms with a matching stock report.
+- **Delivery:** commands are published on a per-machine Redis channel (`cp:machine-commands:<id>`), which the machine's gateway connection subscribes to. It subscribes *before* sending `welcome`, so nothing published in between is missed. Delivery works whichever worker holds the socket, and the same channel will carry other server-to-machine commands.
+- **Offline machines:** a stock change is **refused while the machine is offline** (409 `machine_offline`). The response says whether a live connection received the command (`machine_notified`).
+
+**Validation of operator input.** A restock only adds units. An adjustment may go either way but needs a note. Both change at most 100 units at a time. The ledger itself refuses anything below zero or over capacity (409 `stock_conflict`).
+
+**Offline at once.**
+- **The change:** a new `machines.disconnected_at` column (migration `0008`) is set when the *newest* connection of a machine closes. "Online" is now: heard from within the window **and** not disconnected since (`services/machine_status.is_online`, also used by discovery).
+- **Effect:** stopping the simulator, or a machine closing its connection, shows as offline straight away instead of after 90 seconds. A crash without a close is still caught by the window.
+- **Superseded connections:** when a superseded connection closes, nothing is marked and no `disconnected` event is logged. The machine never went away, and the event log is what uptime is computed from.
+
+**KPIs are computed on request.** They are plain SQL over the source tables. At MVP scale (tens of machines, thousands of reservations) this is cheap and always agrees with the rest of the dashboard. The details:
+- **Pickup rate:** uses the *effective* status, so a lapsed hold counts as expired.
+- **Hold to pickup:** the time from the reservation to its `dispense` ledger row.
+- **Uptime:** each machine's connected share of the last 24 h, from its connect and disconnect events and the state at the window start. A connection that ended without a disconnect event (a crash) counts only until the online window after the machine was last heard from. This is a pure function with its own unit tests.
+
+**Evidence:**
+- **29 API tests**, against the real database:
+  - every view is denied to anonymous (401) and customer (403) callers;
+  - a customer can't change stock;
+  - online, stale and disconnected machines;
+  - stock totals and warnings, holds per slot, recent events;
+  - an operator can pause a machine, and only an admin can decommission one;
+  - a restock is recorded with its actor, mirrored to Redis, and appears in the history;
+  - 7 bad stock changes are refused (over capacity, below zero, an adjustment without a note, a negative restock, zero, a system-only reason, a string number), and offline is refused;
+  - reservation filters, including lapsed-but-unswept holds;
+  - an operator cancel voids the payment, and a finished reservation is refused;
+  - the product lifecycle, and deleting a product a slot uses is refused;
+  - KPI deltas and an exact pickup rate;
+  - 6 uptime cases.
+- **3 live tests** over the real gateway:
+  - a restock reaches the connected machine as `adjust_stock`, and the machine's confirming report needs no correction;
+  - a disconnect shows offline within seconds and a reconnect shows online again;
+  - a superseded connection's close neither marks the machine offline nor logs a disconnect.
+- **1 simulator test:** `adjust_stock` is counted once, confirmed, and clamped at zero.

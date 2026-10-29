@@ -1,7 +1,6 @@
 """Read-side queries for the map, machine pages and product search."""
 
 import uuid
-from datetime import UTC, datetime, timedelta
 
 from geoalchemy2 import Geography, Geometry
 from sqlalchemy import ColumnElement, Select, and_, cast, func, select
@@ -19,6 +18,7 @@ from app.schemas.discovery import (
 )
 from app.schemas.product import ProductRead
 from app.services.availability import slot_availability
+from app.services.machine_status import is_online
 
 
 class MachineNotFoundError(Exception):
@@ -40,12 +40,6 @@ def _lat() -> ColumnElement[float]:
 
 def _lng() -> ColumnElement[float]:
     return func.ST_X(cast(Machine.location, Geometry))
-
-
-def _is_online(last_seen_at: datetime | None, window_seconds: int) -> bool:
-    return last_seen_at is not None and last_seen_at >= datetime.now(UTC) - timedelta(
-        seconds=window_seconds
-    )
 
 
 def _visible() -> ColumnElement[bool]:
@@ -98,7 +92,7 @@ async def find_nearby_machines(
             address=machine.address,
             location=Location(lat=lat, lng=lng),
             status=machine.status,
-            online=_is_online(machine.last_seen_at, online_window_seconds),
+            online=is_online(machine, online_window_seconds),
             distance_m=round(dist, 1),
             products_available=products or 0,
             units_available=int(units or 0),
@@ -137,7 +131,7 @@ async def get_machine_detail(
         address=machine.address,
         location=Location(lat=lat, lng=lng),
         status=machine.status,
-        online=_is_online(machine.last_seen_at, online_window_seconds),
+        online=is_online(machine, online_window_seconds),
         last_seen_at=machine.last_seen_at,
         slots=[
             SlotAvailability(
@@ -211,7 +205,7 @@ async def find_product_nearby(
                 machine_name=machine.name,
                 address=machine.address,
                 location=Location(lat=lat, lng=lng),
-                online=_is_online(machine.last_seen_at, online_window_seconds),
+                online=is_online(machine, online_window_seconds),
                 distance_m=round(dist, 1),
                 available=int(total),
                 slot_id=slot_id,

@@ -46,11 +46,23 @@ class StockCorrection:
 
 
 async def record_connection(
-    session: AsyncSession, machine_id: uuid.UUID, kind: MachineEventKind
+    session: AsyncSession, machine_id: uuid.UUID, kind: MachineEventKind, *, offline: bool = True
 ) -> None:
+    """Log a connect or disconnect; a disconnect also marks the machine offline.
+
+    `offline=False` is a superseded connection closing while a newer one is
+    live: the machine never went away, so nothing is marked or logged (the
+    event log is what uptime is computed from).
+    """
     if kind is MachineEventKind.CONNECTED:
         await session.execute(
             update(Machine).where(Machine.id == machine_id).values(last_seen_at=func.now())
+        )
+    elif not offline:
+        return
+    else:
+        await session.execute(
+            update(Machine).where(Machine.id == machine_id).values(disconnected_at=func.now())
         )
     session.add(MachineEvent(machine_id=machine_id, kind=kind))
     await session.commit()
