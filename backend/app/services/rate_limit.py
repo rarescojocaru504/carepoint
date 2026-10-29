@@ -64,3 +64,10 @@ async def hit(redis: Redis, scope: str, identifier: str, rule: RateLimitRule) ->
         remaining=max(rule.limit - count, 0),
         retry_after_seconds=max(ttl, 1),
     )
+
+
+async def peek(redis: Redis, scope: str, identifier: str) -> tuple[int, int]:
+    """Current (count, seconds until reset) for a counter, without counting."""
+    key = _key(scope, identifier)
+    count, ttl = await redis.get(key), await redis.ttl(key)
+    return int(count or 0), max(int(ttl), 0)

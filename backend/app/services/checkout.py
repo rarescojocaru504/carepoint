@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Order, PaymentStatus, Product, Reservation, ReservationStatus, User
 from app.models.machine import MachineSlot
 from app.services.payments import PaymentProvider
+from app.services.pickup_codes import PickupCredential, assign_code
 from app.services.reservations import (
     ReservationError,
     ReservationNotFoundError,
@@ -27,6 +28,9 @@ class CheckoutResult:
     reservation: Reservation
     order: Order
     created: bool  # False for an idempotent repeat
+    # The plaintext code exists only here, at issue time (only its hash is
+    # stored), so an idempotent repeat cannot return it: rotate instead.
+    pickup: PickupCredential | None
 
 
 async def checkout(
@@ -58,7 +62,7 @@ async def checkout(
     if reservation.status is ReservationStatus.PAID:
         existing = await session.scalar(select(Order).where(Order.reservation_id == reservation.id))
         if existing is not None:
-            return CheckoutResult(reservation, existing, created=False)
+            return CheckoutResult(reservation, existing, created=False, pickup=None)
 
     status = effective_status(reservation)
     if status is not ReservationStatus.HELD:
@@ -90,6 +94,8 @@ async def checkout(
     )
     session.add(order)
     reservation.status = ReservationStatus.PAID
+    await session.flush()
+    pickup = await assign_code(session, reservation)
     await session.commit()
     await session.refresh(order)
-    return CheckoutResult(reservation, order, created=True)
+    return CheckoutResult(reservation, order, created=True, pickup=pickup)

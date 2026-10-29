@@ -367,3 +367,30 @@ A decline or outage happens **before anything is written**. The reservation stay
 - **Card-testing defence:** checkout attempts are rate-limited per user (`RATE_LIMIT_CHECKOUT_USER`, 10/min) against people testing stolen card numbers.
 - **Order history:** `GET /api/v1/orders` (newest first) and `GET /api/v1/orders/{id}` return the payment status and the reservation's effective status. Someone else's order returns 404.
 - **Known limitation:** if checkout authorises but then fails to commit and is never retried, the authorisation stays at the provider until it lapses there (real providers expire uncaptured authorisations after about 7 days). No money is taken.
+
+## ADR-016: Pickup codes (2026-10-29)
+
+**The credential.** It's created at checkout, together with the `paid` status:
+- a **6-digit code** from `secrets.randbelow`, a cryptographically secure source;
+- a **QR payload** `CP1:<reservation id>:<code>` for the kiosk camera.
+
+The checkout response returns both **once**, with `Cache-Control: no-store`. An idempotent repeat of the checkout returns `pickup: null`, because the server can't show a code it doesn't store. `POST /api/v1/reservations/{id}/pickup-code` issues a new code (rate-limited per user), and the old code stops working immediately.
+
+**Only a keyed hash is stored:** `HMAC-SHA256(PICKUP_CODE_PEPPER, "<machine id>:<code>")`.
+- With only 10⁶ possible codes, a plain SHA-256 could be reversed from a database dump in under a second. The server-side pepper prevents that. Like `JWT_SECRET`, the app refuses to start in production with the default pepper or one shorter than 32 characters.
+- Including the **machine id** binds the code to the one machine holding the item. The same code typed anywhere else matches nothing.
+
+**Single use by construction.** A code resolves only while its reservation is `paid`, unexpired and at that machine. Dispensing, cancelling or expiry ends that, so no separate "used" flag can drift out of sync.
+
+**No duplicates.** A partial unique index (`uq_reservations_active_pickup_code`, on the hash where `status = 'paid'`, migration `0005`) means two active codes can't collide at a machine. A collision is caught inside a savepoint and a fresh code is drawn (tested by forcing the generator to repeat). Finished reservations release their hash for reuse.
+
+**Verification** (`pickup_codes.verify(machine, credential)`, which Phase 6 calls when the kiosk submits a code):
+- **Input format:** it accepts exactly 6 ASCII digits or the exact `CP1` QR format, ignoring surrounding whitespace. Anything else is an invalid code.
+- **QR check:** for a QR payload, the reservation id must match as well as the code.
+- **No side effects:** it returns the reservation and slot to dispense without changing anything. Dispensing changes the state.
+
+**Brute force.** **Wrong** codes count towards a per-machine limit (`RATE_LIMIT_PICKUP_FAILURES_MACHINE`, 20/min). Once over it, **every** attempt is refused until the window passes, even a correct one, so the kiosk tells the user to wait. Successful pickups don't count, so a busy machine is never locked out. With *k* active codes at a machine, a guesser needs about 10⁶/*k* tries; with *k* = 5 that's about 200,000 tries, or roughly a week of continuous typing at the kiosk, in person, on camera.
+
+**Evidence:**
+- 24 tests: issuing; hash ≠ code ≠ unkeyed hash; verifying by code and by QR; bound to its machine; 6 kinds of bad input, including Unicode digits and injection attempts; dead after dispense, cancel and expiry; rotation; uniqueness and reuse; collision regeneration; lockout; success-not-counted; the pepper requirements.
+- **Mutation-tested:** removing the pepper, removing the machine binding, letting codes work after dispensing, removing the lockout, counting successes as failures, and letting a QR ignore its reservation id were each caught. Accepting non-ASCII digits survives as an *equivalent* mutant, because such codes hash differently and can never match; the ASCII-only rule is defence in depth.
