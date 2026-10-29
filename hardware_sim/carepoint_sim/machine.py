@@ -138,6 +138,11 @@ class SimulatedMachine:
                     logger.exception("%s: connection failed", self.serial)
                 finally:
                     self._disconnected()
+                # A cancellation can surface as another error (Python 3.11's
+                # asyncio.wait_for turns one into TimeoutError); never let the
+                # handlers above swallow it.
+                if (task := asyncio.current_task()) is not None and task.cancelling():
+                    raise asyncio.CancelledError
                 if not self._allowed_online.is_set():
                     continue  # offline on purpose: wait for the fault to clear
                 jitter = random.uniform(0, delay / 2)  # noqa: S311
@@ -152,12 +157,23 @@ class SimulatedMachine:
         self._ws = ws
         logger.info("%s: connected as %s", self.serial, self.machine_id)
         self._publish("online")
+        # Not a TaskGroup: on Python 3.11 one leaves the task's cancel count
+        # raised after a child fails, and can hide a cancellation behind the
+        # child's error, so run() would neither stop nor tell it had to.
+        tasks = {
+            asyncio.create_task(self._read(ws)),
+            asyncio.create_task(self._lifecycle(welcome["heartbeat_interval_seconds"])),
+        }
         try:
-            async with asyncio.TaskGroup() as group:
-                group.create_task(self._read(ws))
-                group.create_task(self._lifecycle(welcome["heartbeat_interval_seconds"]))
-        except* (_Disconnected, NotConnectedError):
-            pass
+            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+        for task in done:
+            error = task.exception()
+            if error is not None and not isinstance(error, _Disconnected | NotConnectedError):
+                raise error
 
     def _apply_welcome(self, welcome: dict[str, Any]) -> None:
         self.machine_id = welcome["machine_id"]
@@ -229,7 +245,8 @@ class SimulatedMachine:
         try:
             async with self._send_lock:
                 await ws.send_json({**message, "id": message_id})
-            reply = await asyncio.wait_for(future, REPLY_TIMEOUT)
+            async with asyncio.timeout(REPLY_TIMEOUT):
+                reply = await future
         except (ConnectionError, aiohttp.ClientError) as exc:
             raise NotConnectedError() from exc
         finally:

@@ -7,6 +7,7 @@ import json
 from collections.abc import Callable
 from typing import Any
 
+import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from carepoint_sim.config import Faults, SimConfig
@@ -175,6 +176,33 @@ async def test_result_without_ack_survives_a_dropped_connection(
     await fake.wait_for("stock_report", count=2)
     assert machine.state.outbox == []
     assert machine.state.counts["A1"] == 4
+
+
+@pytest.mark.parametrize(
+    "disguise",
+    [lambda: TimeoutError(), lambda: ExceptionGroup("session", [TimeoutError()])],
+    ids=["timeout", "exception-group"],
+)
+async def test_stopping_works_even_when_the_cancellation_comes_back_disguised(
+    sim_config: SimConfig, monkeypatch: pytest.MonkeyPatch, disguise: Callable[[], Exception]
+) -> None:
+    """3.11's wait_for can turn a cancellation into TimeoutError, and a task
+    group would wrap that in an ExceptionGroup: run() must still stop."""
+    connected = asyncio.Event()
+
+    async def session(_: SimulatedMachine, ws: Any) -> None:
+        connected.set()
+        try:
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            raise disguise() from None
+
+    monkeypatch.setattr(SimulatedMachine, "_session", session)
+    task = asyncio.create_task(SimulatedMachine(sim_config.machines[0], sim_config).run())
+    await asyncio.wait_for(connected.wait(), 5)
+    task.cancel()
+    done, _ = await asyncio.wait({task}, timeout=5)
+    assert task in done and task.cancelled()
 
 
 async def test_jam_reports_a_failure_and_an_error_event(gateway: Gateway, start: Start) -> None:
