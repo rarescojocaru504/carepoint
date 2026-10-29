@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 720" width="1200" height="720" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif">
+  <title>CarePoint architecture</title>
+  <desc>Customer app, operator dashboard and kiosk talk to a FastAPI backend backed by PostgreSQL with PostGIS and Redis. Machines (simulated or real) connect over an authenticated WebSocket.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#475569"/>
+    </marker>
+    <style>
+      .box { fill: #ffffff; stroke: #cbd5e1; stroke-width: 2; }
+      .core { fill: #f0fdfa; stroke: #0f766e; stroke-width: 2.5; }
+      .store { fill: #f8fafc; stroke: #64748b; stroke-width: 2; }
+      .machine { fill: #fff7ed; stroke: #c2410c; stroke-width: 2; }
+      .title { font-size: 19px; font-weight: 700; fill: #0f172a; }
+      .sub { font-size: 14px; fill: #475569; }
+      .item { font-size: 14px; fill: #0f172a; }
+      .label { font-size: 13px; fill: #334155; }
+      .line { stroke: #475569; stroke-width: 2; fill: none; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="720" fill="#ffffff"/>
+  <text x="600" y="38" text-anchor="middle" font-size="24" font-weight="700" fill="#0f766e">CarePoint: how the pieces fit together</text>
+
+  <!-- clients -->
+  <rect class="box" x="30" y="90" width="270" height="100" rx="12"/>
+  <text class="title" x="50" y="124">Customer app</text>
+  <text class="sub" x="50" y="148">Expo / React Native, on the phone</text>
+  <text class="sub" x="50" y="170">map · reserve · pay · QR + PIN</text>
+
+  <rect class="box" x="30" y="300" width="270" height="100" rx="12"/>
+  <text class="title" x="50" y="334">Operator dashboard</text>
+  <text class="sub" x="50" y="358">React, http://localhost:3000</text>
+  <text class="sub" x="50" y="380">fleet · stock · restock · KPIs</text>
+
+  <rect class="box" x="30" y="560" width="270" height="100" rx="12"/>
+  <text class="title" x="50" y="594">Kiosk screen</text>
+  <text class="sub" x="50" y="618">on the machine, :8080</text>
+  <text class="sub" x="50" y="640">type or scan the pickup code</text>
+
+  <!-- backend -->
+  <rect class="core" x="430" y="90" width="340" height="400" rx="14"/>
+  <text class="title" x="450" y="126">Backend: FastAPI</text>
+  <text class="sub" x="450" y="150">Python 3.11 · http://localhost:8000</text>
+  <text class="item" x="450" y="188">• REST API /api/v1 (strict validation)</text>
+  <text class="item" x="450" y="216">• Reservations: atomic 15-minute holds</text>
+  <text class="item" x="450" y="244">• Checkout: mock payments, authorise</text>
+  <text class="item" x="462" y="264">→ capture on pickup, void on expiry</text>
+  <text class="item" x="450" y="292">• Pickup codes (only a keyed hash stored)</text>
+  <text class="item" x="450" y="320">• Live notices (server-sent events)</text>
+  <text class="item" x="450" y="348">• Machine gateway (WebSocket)</text>
+  <text class="item" x="450" y="376">• Background jobs: expiry sweeper,</text>
+  <text class="item" x="462" y="396">settlement, Redis ↔ Postgres repair</text>
+  <text class="item" x="450" y="424">• JSON logs + /metrics</text>
+  <text class="sub" x="450" y="466">Auth: JWT for people, Ed25519 keys for machines</text>
+
+  <!-- stores -->
+  <rect class="store" x="900" y="110" width="270" height="110" rx="12"/>
+  <text class="title" x="920" y="146">PostgreSQL + PostGIS</text>
+  <text class="sub" x="920" y="170">the durable truth: users, machines,</text>
+  <text class="sub" x="920" y="192">reservations, orders, stock ledger</text>
+
+  <rect class="store" x="900" y="330" width="270" height="110" rx="12"/>
+  <text class="title" x="920" y="366">Redis 7</text>
+  <text class="sub" x="920" y="390">the fast gate: holds (Lua scripts),</text>
+  <text class="sub" x="920" y="412">pub/sub, rate limits, nonces</text>
+
+  <!-- machine -->
+  <rect class="machine" x="430" y="560" width="340" height="100" rx="12"/>
+  <text class="title" x="450" y="594">Vending machine</text>
+  <text class="sub" x="450" y="618">today: simulator (6 machines)</text>
+  <text class="sub" x="450" y="640">tomorrow: Raspberry Pi / ESP32</text>
+
+  <!-- arrows -->
+  <path class="line" d="M300,140 L428,140" marker-end="url(#arrow)"/>
+  <text class="label" x="310" y="128">REST + live (SSE)</text>
+  <text class="label" x="310" y="160">JWT</text>
+
+  <path class="line" d="M300,350 L428,350" marker-end="url(#arrow)"/>
+  <text class="label" x="310" y="338">REST + SSE</text>
+  <text class="label" x="310" y="370">via nginx · JWT</text>
+
+  <path class="line" d="M300,610 L428,610" marker-end="url(#arrow)"/>
+  <text class="label" x="310" y="598">local HTTP</text>
+  <text class="label" x="310" y="630">(never the backend)</text>
+
+  <path class="line" d="M600,558 L600,492" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
+  <text class="label" x="612" y="522">WebSocket · signed handshake</text>
+  <text class="label" x="612" y="540">verify code → dispense → result</text>
+
+  <path class="line" d="M770,165 L898,165" marker-end="url(#arrow)"/>
+  <text class="label" x="780" y="153">SQL</text>
+
+  <path class="line" d="M770,385 L898,385" marker-end="url(#arrow)"/>
+  <text class="label" x="780" y="373">holds · pub/sub</text>
+
+  <text x="600" y="702" text-anchor="middle" class="sub">Everything runs with one command: docker compose up. The phone app connects over the local network.</text>
+</svg>

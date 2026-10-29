@@ -60,6 +60,9 @@ services:
       REDIS_URL: redis://redis:6379/0
       WEB_CONCURRENCY: ${WEB_CONCURRENCY:-1}
       DEMO_INIT: ${DEMO_INIT:-1}
+      # How long a reservation holds stock. Set 60 to show an expiry on stage:
+      #   RESERVATION_HOLD_SECONDS=60 docker compose up --wait   (or put it in .env)
+      RESERVATION_HOLD_SECONDS: ${RESERVATION_HOLD_SECONDS:-900}
     volumes:
       - machine_keys:/var/lib/carepoint/machine-keys
     healthcheck:

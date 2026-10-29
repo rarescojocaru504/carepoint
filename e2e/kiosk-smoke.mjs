@@ -7,13 +7,14 @@
 //
 // Screenshots of each step land in e2e/artifacts/.
 
+import { fileURLToPath } from "node:url";
 import { mkdir } from "node:fs/promises";
 import { chromium } from "playwright";
 
 const API = process.env.API_URL ?? "http://localhost:8000/api/v1";
 const KIOSK = process.env.KIOSK_URL ?? "http://localhost:8080";
 const SERIAL = "CP-BUC-0001";
-const ARTIFACTS = new URL("./artifacts/", import.meta.url).pathname;
+const ARTIFACTS = fileURLToPath(new URL("./artifacts/", import.meta.url));
 
 async function api(method, path, body, token) {
   const response = await fetch(API + path, {
