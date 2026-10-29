@@ -35,7 +35,8 @@ from app.schemas.machine_protocol import (
     VerifyResult,
     parse_machine_message,
 )
-from app.services import machine_telemetry, pickups
+from app.services import events, machine_telemetry, pickups
+from app.services.events import Topic
 from app.services.machine_telemetry import StockReportError
 from app.services.payments import PaymentProvider
 from app.services.pickup_codes import InvalidPickupCodeError, TooManyAttemptsError
@@ -121,6 +122,7 @@ async def open_connection(
     async with sessions() as session:
         await machine_telemetry.record_connection(session, machine.id, MachineEventKind.CONNECTED)
     logger.info("Machine %s connected (%s)", machine.serial_number, connection.connection_id)
+    await events.publish(redis, Topic.MACHINE, machine_id=machine.id, change="connected")
     return connection
 
 
@@ -185,6 +187,10 @@ async def close_connection(connection: MachineConnection) -> None:
     except Exception:
         logger.exception("Could not record disconnect of machine %s", connection.machine_id)
     logger.info("Machine %s disconnected (%s)", connection.machine_id, connection.connection_id)
+    if newest:
+        await events.publish(
+            connection.redis, Topic.MACHINE, machine_id=connection.machine_id, change="disconnected"
+        )
 
 
 async def handle_text(connection: MachineConnection, text: str) -> Outcome:
@@ -220,7 +226,7 @@ async def handle_text(connection: MachineConnection, text: str) -> Outcome:
 async def _dispatch(
     connection: MachineConnection, session: AsyncSession, message: MachineMessage
 ) -> Outcome:
-    machine_id = connection.machine_id
+    machine_id, redis = connection.machine_id, connection.redis
     match message:
         case Heartbeat():
             await machine_telemetry.record_heartbeat(session, machine_id, message.firmware_version)
@@ -231,6 +237,7 @@ async def _dispatch(
                 door_open=message.door == "open",
                 temperature_c=message.temperature_c,
             )
+            await events.publish(redis, Topic.MACHINE, machine_id=machine_id, change="telemetry")
         case ErrorEvent():
             await machine_telemetry.record_error(
                 session,
@@ -239,9 +246,10 @@ async def _dispatch(
                 slot_code=message.slot,
                 message=message.message,
             )
+            await events.publish(redis, Topic.MACHINE, machine_id=machine_id, change="fault")
         case StockReport():
             try:
-                await machine_telemetry.reconcile_stock_report(
+                corrections = await machine_telemetry.reconcile_stock_report(
                     session,
                     connection.redis,
                     machine_id,
@@ -251,6 +259,8 @@ async def _dispatch(
                 return Outcome(
                     Error(reply_to=message.id, code=exc.code, detail=exc.detail), rejected=True
                 )
+            if corrections:
+                await events.publish(redis, Topic.STOCK, machine_id=machine_id, change="corrected")
         case VerifyCode():
             return await _verify(connection, session, message)
         case DispenseResult():

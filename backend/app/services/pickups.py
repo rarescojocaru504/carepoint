@@ -32,8 +32,9 @@ from app.models import (
     ReservationStatus,
     StockMovementReason,
 )
-from app.services import hold_store, pickup_codes
+from app.services import events, hold_store, pickup_codes
 from app.services.dispensing import complete_dispense
+from app.services.events import Topic
 from app.services.inventory import InsufficientStockError, record_stock_movement
 from app.services.payment_settlement import settle_reservation
 from app.services.payments import PaymentProvider
@@ -133,6 +134,7 @@ async def request_pickup(
     session.add(command)
     await session.commit()
     logger.info("Dispense %s issued for reservation %s", command.id, reservation.id)
+    await events.publish(redis, Topic.RESERVATION, machine_id=machine_id, change="dispensing")
     return IssuedDispense(command.id, reservation.id, verified.slot_code, reservation.quantity)
 
 
@@ -294,6 +296,8 @@ async def _record_partial(
     except RedisError:
         logger.exception("Could not mirror partial dispense %s in Redis", command.id)
     await settle_reservation(session, provider, reservation.id)  # void
+    for topic in (Topic.RESERVATION, Topic.STOCK):
+        await events.publish(redis, topic, machine_id=command.machine_id, change="partial")
 
 
 async def _record_late(
@@ -321,3 +325,4 @@ async def _record_late(
             await hold_store.apply_stock_delta(redis, command.slot_id, -units)
         except RedisError:
             logger.exception("Could not mirror late dispense %s in Redis", command.id)
+        await events.publish(redis, Topic.STOCK, machine_id=command.machine_id, change="late")

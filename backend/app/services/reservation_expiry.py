@@ -14,8 +14,9 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import DispenseCommand, DispenseCommandStatus, Reservation, ReservationStatus
-from app.services import hold_store
+from app.services import events, hold_store
 from app.services.availability import ACTIVE_HOLD_STATUSES
+from app.services.events import Topic
 
 logger = logging.getLogger(__name__)
 
@@ -80,4 +81,5 @@ async def expire_due_reservations(
             logger.warning("Could not tidy expired hold %s in Redis", reservation_id)
     if rows:
         logger.info("Expired %d reservation(s)", len(rows))
+        await events.publish(redis, Topic.RESERVATION, machine_id=None, change="expired")
     return [reservation_id for reservation_id, _ in rows]

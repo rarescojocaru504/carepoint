@@ -579,3 +579,19 @@ async def test_superseded_connection_closing_does_not_mark_offline(
     kinds = [e.kind for e in await _events(world, machine.id)]
     assert kinds == [MachineEventKind.CONNECTED, MachineEventKind.CONNECTED]
     await new.close()
+
+
+async def test_machine_vanishing_mid_reply_is_an_ordinary_disconnect(
+    make_machine: MakeMachine, world: World, caplog: pytest.LogCaptureFixture
+) -> None:
+    fake, machine, _ = await make_machine()
+    await fake.connect()
+    for _ in range(5):  # replies still on their way when the socket goes
+        await fake.send("heartbeat", firmware_version="1", uptime_seconds=1)
+    await fake.close()
+
+    async def logged() -> bool:
+        return MachineEventKind.DISCONNECTED in [e.kind for e in await _events(world, machine.id)]
+
+    await eventually(logged)
+    assert "Exception in ASGI application" not in caplog.text

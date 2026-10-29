@@ -41,8 +41,9 @@ from app.schemas.admin import (
 from app.schemas.discovery import Location
 from app.schemas.machine_protocol import AdjustStock
 from app.schemas.product import ProductCreate, ProductUpdate
-from app.services import hold_store
+from app.services import events, hold_store
 from app.services.availability import ACTIVE_HOLD_STATUSES, active_holds_by_slot
+from app.services.events import Topic
 from app.services.inventory import record_stock_movement
 from app.services.machine_gateway import send_command
 from app.services.machine_status import is_online
@@ -247,6 +248,7 @@ async def record_operator_change(
         logger.exception("Could not send adjust_stock to %s", machine_id)
     if not notified:
         logger.warning("Machine %s did not receive adjust_stock for %s", machine_id, slot_code)
+    await events.publish(redis, Topic.STOCK, machine_id=machine_id, change=change.reason)
     return StockMovementResult(
         **StockMovementWithActor.model_validate(
             {**_movement_fields(movement), "actor_email": actor.email}

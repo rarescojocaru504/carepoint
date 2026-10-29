@@ -16,8 +16,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Reservation, ReservationStatus, StockMovementReason
-from app.services import hold_store
+from app.services import events, hold_store
 from app.services.availability import ACTIVE_HOLD_STATUSES
+from app.services.events import Topic
 from app.services.inventory import record_stock_movement
 from app.services.payment_settlement import settle_reservation
 from app.services.payments import PaymentProvider
@@ -88,4 +89,6 @@ async def complete_dispense(
         logger.exception("Could not mirror dispense of %s in Redis", reservation_id)
     # The item is out: capture now, or settlement retries until it succeeds.
     await settle_reservation(session, provider, reservation_id)
+    for topic in (Topic.RESERVATION, Topic.STOCK):
+        await events.publish_for_slot(session, redis, topic, slot_id, change="dispensed")
     return reservation

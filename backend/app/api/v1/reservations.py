@@ -185,6 +185,7 @@ async def checkout(
     data: CheckoutRequest,
     user: CurrentUser,
     session: DbSession,
+    redis: RedisClient,
     provider: Provider,
     response: Response,
 ) -> CheckoutResponse:
@@ -192,7 +193,7 @@ async def checkout(
     the machine dispenses, and voided if the hold expires or is cancelled."""
     try:
         result = await checkout_service.checkout(
-            session, provider, user, reservation_id, data.payment_method
+            session, redis, provider, user, reservation_id, data.payment_method
         )
     except service.ReservationNotFoundError:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Reservation not found") from None

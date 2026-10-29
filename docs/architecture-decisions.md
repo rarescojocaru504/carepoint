@@ -685,3 +685,43 @@ Screenshots of each step are uploaded as a CI artifact. They also serve as pitch
   - a disconnect shows offline within seconds and a reconnect shows online again;
   - a superseded connection's close neither marks the machine offline nor logs a disconnect.
 - **1 simulator test:** `adjust_stock` is counted once, confirmed, and clamped at zero.
+
+## ADR-022: Live change notices for operators (2026-10-29)
+
+`GET /api/v1/admin/events` is a server-sent-events stream for dashboards. It carries **notices, not data**:
+
+```
+data: {"topic": "stock", "machine_id": "…", "change": "restock", "at": "2026-10-29T11:50:02+00:00"}
+```
+
+| Topic | Changes |
+|---|---|
+| `machine` | `connected`, `disconnected`, `telemetry`, `fault` |
+| `stock` | `restock`, `adjustment`, `corrected` (a machine's stock report), `dispensed`, `partial`, `late` |
+| `reservation` | `created`, `paid`, `dispensing`, `dispensed`, `partial`, `cancelled`, `expired` |
+
+**Why notices only.**
+- **One source of truth:** the dashboard re-reads what it shows through the admin API after a notice. Its view can't drift from what the API would say, there's no second set of payload schemas to version, and access control stays in one place.
+- **Wide notices are fine:** a notice with `machine_id: null` (the expiry sweeper's, which covers several machines) means "refresh them all".
+- **Cost:** a refetch is cheap at dashboard scale.
+
+**Transport.**
+- **Publishing:** services publish to one Redis pub/sub channel (`cp:events`) **after they commit**. That covers the machine gateway (connections, telemetry, faults, stock reports), reservations, checkout, dispensing, pickups, the expiry sweeper and operators' stock changes.
+- **Same mechanism as machine commands:** these notices travel the same way as machine commands do (ADR-021), so any worker's change reaches every worker's dashboards.
+- **Best effort:** a lost notice costs one stale view until the next notice or refresh, never a failed operation (tested with a broken Redis).
+
+**The stream itself.**
+- **Authorisation:** `Authorization: Bearer` is required, and the role is checked as for every admin route. Browsers' `EventSource` can't send headers, so dashboards read the stream with `fetch()`; tokens never go in URLs, which end up in logs.
+- **No database connection:** authorisation uses a short-lived session that is closed before streaming starts. A dashboard left open for an hour holds no database connection.
+- **Ends at token expiry:** the client reconnects with a fresh token, so a demoted or deactivated operator stops receiving notices within one token lifetime.
+- **Buffering:** a keep-alive comment is sent every 15 s, and `X-Accel-Buffering: no` plus `Cache-Control: no-transform` stop proxies from buffering the stream.
+
+**Found on the way.** A machine that closed its socket while the gateway was still sending replies made the handler raise `WebSocketDisconnect` and log an ASGI traceback. That is now an ordinary disconnect. The regression test fails three times out of three without the fix. To make it possible, the test server's logs now reach pytest's `caplog`.
+
+**Evidence:**
+- **Over a real server:**
+  - the stream refuses anonymous (401), customer (403) and forged-token (401) callers;
+  - an operator sees the connect, the restock (and the machine receives `adjust_stock`), a reservation created, telemetry, and the disconnect, each tagged with the right machine;
+  - the stream closes when its token expires.
+- **Publishers:** a reservation's life (created → paid → cancelled, and created → expired) publishes exactly the expected notices in order.
+- **Failure:** publishing with Redis down doesn't raise.
