@@ -8,7 +8,7 @@ import { formatPrice } from "../format";
 import { friendlyError } from "../messages";
 import type { ScreenProps } from "../navigation";
 import { useMachines } from "../store/machines";
-import { DECLINED_CARD, TEST_CARD, useReservations } from "../store/reservations";
+import { DECLINED_CARD, isActive, TEST_CARD, useReservations } from "../store/reservations";
 import type { Reservation } from "../store/reservations";
 
 export function ReservationScreen({ route, navigation }: ScreenProps<"Reservation">) {
@@ -45,6 +45,7 @@ export function ReservationScreen({ route, navigation }: ScreenProps<"Reservatio
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}
     >
       <Summary reservation={reservation} />
+      <MachineWarning reservation={reservation} />
       {error !== null && <Banner tone="error">{error}</Banner>}
       <Body
         reservation={reservation}
@@ -67,6 +68,34 @@ function Summary({ reservation }: { reservation: Reservation }) {
       <Text style={styles.price}>{formatPrice(reservation.total_cents, reservation.currency)}</Text>
     </View>
   );
+}
+
+/** While a hold is active, say so if its machine can't hand the item out now.
+ * The machine's detail is loaded here, so live notices keep it current. */
+function MachineWarning({ reservation }: { reservation: Reservation }) {
+  const machine = useMachines((s) => s.details[reservation.machine_id]?.data);
+  const loadMachine = useMachines((s) => s.loadMachine);
+  useEffect(() => {
+    void loadMachine(reservation.machine_id);
+  }, [loadMachine, reservation.machine_id]);
+  if (!machine || !isActive(reservation)) return null;
+  if (machine.status !== "active") {
+    return (
+      <Banner tone="error">
+        This machine has been taken out of service. Cancel to free your hold; you won&apos;t be
+        charged.
+      </Banner>
+    );
+  }
+  if (!machine.online) {
+    return (
+      <Banner tone="error">
+        This machine is offline right now. Your hold stays until the timer runs out, and you&apos;re
+        only charged if the machine hands you the item.
+      </Banner>
+    );
+  }
+  return null;
 }
 
 /** The machine's name, from what the app already loaded, else fetched once. */

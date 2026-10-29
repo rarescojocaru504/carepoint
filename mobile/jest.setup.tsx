@@ -15,6 +15,13 @@ jest.mock("react-native-qrcode-svg", () => {
   return { __esModule: true, default: QRCode };
 });
 
+// Without this, SafeAreaProvider renders nothing until it has measured a screen.
+jest.mock(
+  "react-native-safe-area-context",
+  () =>
+    jest.requireActual<{ default: object }>("react-native-safe-area-context/jest/mock").default,
+);
+
 // expo-secure-store is native; tests use an in-memory stand-in.
 jest.mock("expo-secure-store", () => {
   const store = new Map<string, string>();

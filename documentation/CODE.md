@@ -329,17 +329,24 @@ mobile/
     │   │                   Requests go to fetch as (url, init), never as a Request object:
     │   │                   Expo's fetch refuses those (ADR-025)
     │   ├── clock.ts        the server's clock (from each response's Date header) for countdowns
+    │   ├── live.ts         the live connection: GET /api/v1/events read with fetch, reconnect
+    │   │                   with backoff, token refresh, silent-stream watchdog (ADR-028)
+    │   ├── liveSync.ts     what each notice makes the stores re-read (debounced)
+    │   ├── sse.ts          server-sent-events parser
     │   ├── location.ts     phone position or the Bucharest demo centre
     │   └── tokens.ts       access token in memory, refresh token in expo-secure-store
     ├── store/              Zustand: auth (restoring / unreachable / signedOut / signedIn),
     │                       machines (centre, nearby list, details; loading / ready / error),
     │                       reservations (reserve, pay, cancel, my reservations and orders;
-    │                       pickup codes in memory only, ADR-027)
+    │                       pickup codes in memory only, ADR-027),
+    │                       live (connection status: idle / connecting / live / reconnecting)
     ├── screens/            SignInScreen (sign in + register), MapScreen (map + list),
     │                       MachineScreen (slots, prices, availability, Reserve),
     │                       ReservationScreen (countdown, pay, QR + PIN, cancel, outcome),
     │                       OrdersScreen (active reservations + order history)
-    ├── components/         ui.tsx (Button, StateBadge, Banner, colours), Countdown, PickupCode
+    ├── components/         ui.tsx (Button, StateBadge, Banner, colours), Countdown, PickupCode,
+    │                       ActiveReservations (running holds on the map), LiveUpdates
+    │                       (foreground/background lifecycle + "Reconnecting…" banner)
     └── test-utils/         fakeServer (a fake API as global fetch) and fixtures
 ```
 

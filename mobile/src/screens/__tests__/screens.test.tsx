@@ -132,7 +132,7 @@ describe("MapScreen", () => {
 
     expect(await screen.findByText(/Showing the Bucharest demo area/)).toBeTruthy();
     expect(useMachines.getState().center).toEqual(DEMO_CENTER);
-    expect(seen).toHaveLength(2);
+    expect(seen.filter((s) => s.path === "/api/v1/machines/nearby")).toHaveLength(2);
   });
 
   it("shows a connection error", async () => {

@@ -5,6 +5,7 @@ import { useEffect } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
+import { ConnectionBanner, useLiveUpdates } from "./src/components/LiveUpdates";
 import { Button, Centered, colors } from "./src/components/ui";
 import { API_URL } from "./src/config";
 import type { RootStackParamList } from "./src/navigation";
@@ -24,6 +25,7 @@ export default function App() {
   useEffect(() => {
     void restore();
   }, [restore]);
+  useLiveUpdates();
 
   return (
     <SafeAreaProvider>
@@ -83,6 +85,7 @@ export default function App() {
           </Stack.Navigator>
         </NavigationContainer>
       )}
+      <ConnectionBanner />
     </SafeAreaProvider>
   );
 }

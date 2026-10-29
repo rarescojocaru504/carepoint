@@ -939,3 +939,54 @@ Anything else shows the server's own message.
   - the code was typed into that machine's kiosk API, and the simulated machine dispensed;
   - the app then read `dispensed`, the order showed 12.99 RON **captured**, and the code was gone from memory.
 - **Builds:** the Android and iOS bundles build.
+
+## ADR-028: Live updates and resilience in the app (2026-10-29)
+
+**The connection** (`src/services/live.ts`). The app reads `GET /api/v1/events` (ADR-026) with `fetch`, as the operator dashboard does.
+- **Transport:** Expo SDK 58's `fetch` streams response bodies and sends headers, so no SSE library or WebSocket is needed, and the token stays in a header, never a URL.
+- **Decoding:** the body is read with `getReader()` and decoded with `TextDecoder`. Piping it through a `TextDecoderStream` failed in testing, because the body's stream and the decoder's can come from different implementations.
+- **Reconnecting** (`LiveConnection`):
+  - **The server ends the stream at token expiry,** every 15 minutes. The app reconnects at once; if the server answers 401, it refreshes the token once (ADR-024) and retries. If the session can't be refreshed, the connection stops and the auth store signs the customer out.
+  - **Failures** (offline, a dropped socket, 429 or 503) are retried after 1, 2, 5, 10, then every 30 seconds, and the status becomes `reconnecting`.
+  - **Silent streams:** a stream that sends nothing for 45 seconds, three times the server's keep-alive interval, is treated as dead and replaced. A phone that switches networks often keeps a socket that never errors.
+  - **Lifecycle:** the connection runs only while signed in and in the foreground. Backgrounding the app closes it, and returning reconnects (`useLiveUpdates`).
+
+**What a notice does** (`src/services/liveSync.ts`). Notices carry no data (ADR-026), so each one makes the app re-read what it shows:
+
+| Notice | Re-read |
+|---|---|
+| `stock` or `machine`, for machine M | M's detail if it is loaded, and the nearby list; `machine_id: null` means every loaded machine |
+| `reservation`, with reservation R | R; and the "My orders" lists if they were opened |
+| `hello` (just connected or reconnected) | everything on screen: nearby machines, loaded machines, active reservations, lists, because notices may have been missed while disconnected |
+
+Re-reads are debounced by 300 ms per target, so a dispense, which sends several notices, costs one request. A failed re-read leaves the last data on screen.
+
+**The failure scenarios:**
+- **An expired hold.**
+  - The reservation screen re-reads when its countdown reaches zero (ADR-027), and the server's `expired` notice re-reads it anyway, for example when the phone's timer was suspended in the background. The screen then says the item went back on sale, the customer wasn't charged, and offers **Reserve again**.
+  - The map shows the customer's running holds with their countdowns, soonest first (`ActiveReservations`), so a hold is visible after an app restart. It disappears the moment it expires or is picked up.
+- **The machine goes offline** (or into maintenance).
+  - The machine screen updates live: its badge, its warning, and **Reserve** disabled.
+  - On the reservation screen, an active hold at an offline machine shows that the hold stays until the timer runs out and the customer is only charged if the machine hands the item over. A machine taken out of service suggests cancelling.
+- **The app loses its connection.**
+  - A **"Reconnecting… live updates are paused."** banner shows at the bottom of every screen while the stream is down.
+  - API calls still show their own errors.
+  - Countdowns keep running on the last known server-clock offset.
+  - On reconnecting, `hello` makes the app catch up.
+
+**Evidence:**
+- **86 Jest tests.** The new ones cover:
+  - the SSE parser: chunk boundaries, CRLF, multi-line data, comments;
+  - notice validation;
+  - `LiveConnection` against a fake streaming server: notices with the bearer token; an immediate reconnect at stream end; one token refresh on 401; no retry loop when the session is gone; backoff 10 → 20 → 40 ms while unreachable, then live; 429 and 503 as temporary; a silent stream replaced; stop is final;
+  - the sync rules: a burst of notices costs one re-read; machines not on screen aren't fetched; a reservation notice re-reads it; `hello` re-reads everything; stopping cancels pending re-reads;
+  - foreground and background: start, stop, start, and stop on sign-out;
+  - the banner appears only while reconnecting;
+  - running holds listed soonest first, disappearing when they end;
+  - the offline-machine warning appearing on a live re-read, and absent once the reservation is over.
+- **A one-off run against the Compose stack,** using the app's real stores and connection through a streaming Node HTTP adapter with Expo's fetch contract:
+  - the stream went `connecting → live`;
+  - holding a unit changed the machine screen's availability from 7 to 6 live;
+  - after the code was typed at CP-BUC-0001's kiosk, the reservation turned `dispensed` from the live notice alone, and the code left memory;
+  - switching the simulator's "offline" fault on and off made the machine screen show offline, then online again.
+- **Builds:** the Android and iOS bundles build.
