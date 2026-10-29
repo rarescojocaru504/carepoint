@@ -368,7 +368,7 @@ mobile/
 
 | Folder | Contents |
 |---|---|
-| `e2e/` | Playwright **library** scripts: `kiosk-smoke.mjs` and `dashboard-smoke.mjs`. They run against the live Compose stack; screenshots go to `e2e/artifacts/` |
+| `e2e/` | Playwright **library** scripts against the live Compose stack: `kiosk-smoke.mjs`, `dashboard-smoke.mjs`, and `story.mjs`, the whole MVP story through the app's API calls plus the kiosk, with expiry when holds are short, optionally recorded as a captioned video (ADR-030). Output goes to `e2e/artifacts/` |
 | `loadtest/` | `race.py` (precise last-unit race) and `locustfile.py`, with `compose.loadtest.yml` |
 | `docs/` | ADRs, machine protocol and schema, benchmarks. Phase 11 adds `manual-testing-guide.md` and `pitch/` |
 | `infra/postgres/init/` | creates the `carepoint_test` database on first start |

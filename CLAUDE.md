@@ -181,7 +181,7 @@ Rules for working through the roadmap:
 - [x] Handling for an expired hold, a machine going offline and the app losing connection (ADR-028, #30).
 
 ### Phase 11 — MVP hardening, handover & pitch kit
-- [ ] An end-to-end test of the whole story in CI: API, simulator and kiosk (Playwright), driven through the same API calls the app makes.
+- [x] An end-to-end test of the whole story in CI: API, simulator and kiosk (Playwright), driven through the same API calls the app makes (`e2e/story.mjs`, ADR-030, #33).
 - [ ] Structured JSON logs with request IDs, a basic metrics endpoint and a security pass with the `/security-review` skill.
 - [ ] One-command demo: `docker compose up` plus seed data. The README covers quick start and architecture.
 - [ ] **`docs/manual-testing-guide.md`**: a step-by-step guide to running the stack and trying every feature by hand. It covers the API through Swagger, the operator dashboard, the kiosk simulator, the mobile app in Expo Go, failure scenarios such as expiry and an offline machine, and how the pieces fit together.

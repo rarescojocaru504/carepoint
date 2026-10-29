@@ -235,6 +235,19 @@ jobs:
           if-no-files-found: ignore
       - name: pytest inside backend container
         run: docker compose exec -T -e REQUIRE_SERVICES=1 backend pytest -p no:cacheprovider -q
+      # Last, because it restarts the backend with 40 s holds so the story's
+      # expiry half takes under a minute (ADR-030).
+      - name: The whole MVP story (the app's API calls, kiosk in a browser, expiry; recorded)
+        run: |
+          RESERVATION_HOLD_SECONDS=40 docker compose up -d --wait backend
+          cd e2e && STORY_VIDEO=1 node story.mjs
+      - name: Upload the story video
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: story-video
+          path: e2e/artifacts/story-video/
+          if-no-files-found: ignore
       - name: Dump logs on failure
         if: failure()
         run: docker compose logs --no-color
