@@ -190,23 +190,40 @@ npm run dev
 
 The dev server uses port 3000 and proxies `/api` to the backend on `localhost:8000` (`vite.config.ts`). Stop the Compose `dashboard` service first (`docker compose stop dashboard`), because it uses the same port.
 
-### Mobile (`mobile/`, from Phase 9)
+### Mobile (`mobile/`)
 
-**Start the Expo dev server:**
+**Try it on your phone with Expo Go:**
+
+1. Install **Expo Go** from the App Store or Play Store. The phone and the computer must be on the same Wi-Fi.
+2. Start the stack: `docker compose up --build --wait`.
+3. Find your computer's LAN address: run `ipconfig` on Windows and use the **Wi-Fi** adapter's IPv4 address (not the WSL or VirtualBox ones), or `ipconfig getifaddr en0` on macOS.
+4. Start Expo with that address. In **PowerShell**:
+
+   ```powershell
+   cd mobile; npm ci; $env:EXPO_PUBLIC_API_URL="http://192.168.1.23:8000"; npx expo start
+   ```
+
+   In **Git Bash** or macOS/Linux:
+
+   ```bash
+   cd mobile && npm ci && EXPO_PUBLIC_API_URL=http://192.168.1.23:8000 npx expo start
+   ```
+
+5. Scan the QR code: with the Camera app on iPhone, or from inside Expo Go on Android.
+
+`EXPO_PUBLIC_API_URL` is read when the bundle is built. After changing it, restart with `npx expo start --clear`. The Android emulator uses `http://10.0.2.2:8000`.
+
+**If the phone can't connect:**
+- **"Can't reach CarePoint":** the phone can't reach port 8000. Open `http://<LAN IP>:8000/health` in the phone's browser. If that fails, allow inbound TCP 8000 in Windows Defender Firewall for **Private** networks, and make sure Windows treats the Wi-Fi as a Private network.
+- **Expo Go can't load the app at all:** the phone can't reach Metro on port 8081. Allow it in the firewall too, or run `npx expo start --tunnel`, which needs no firewall change but is slower.
+
+**Checks** (the same as CI):
 
 ```bash
-cd mobile && npm ci && npx expo start
+npm run gen:api && npm run typecheck && npm run lint && npm test
 ```
 
-Then scan the QR code with **Expo Go**.
-
-The phone can't reach `localhost`. Point the app at your computer's LAN IP:
-
-```bash
-EXPO_PUBLIC_API_URL=http://192.168.1.23:8000 npx expo start
-```
-
-Replace `192.168.1.23` with your own IP: run `ipconfig` on Windows, or `ipconfig getifaddr en0` on macOS. The phone and computer must be on the same Wi-Fi, and the firewall must allow inbound port 8000. The Android emulator uses `http://10.0.2.2:8000` instead.
+After `gen:api`, `git status` must show no change to `src/services/api-types.ts`. If it does, commit the regenerated file.
 
 ### Browser end-to-end tests (`e2e/`)
 

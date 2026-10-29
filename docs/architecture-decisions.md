@@ -808,3 +808,32 @@ The whole schema is exported, operator routes included. It is already public at 
 **Checks.** The CI job **Mobile (TypeScript)** runs `npm ci`, the generated-types check, `tsc --noEmit` (strict, plus `noUncheckedIndexedAccess`), ESLint (`eslint-config-expo` with `no-explicit-any` as an error) and Jest (`jest-expo`). It is in `automerge.needs`. It uses Node 22, which React Native 0.88 requires; the other jobs stay on Node 20.
 
 **Evidence.** Jest tests with a fake API server installed as `fetch`: the access token is never written to SecureStore; a 401 refreshes once and retries with the same body; three concurrent 401s cause exactly one refresh; a rejected refresh token signs the user out; a network error or 429 keeps the token; sign-out works offline; every FastAPI error shape is read; the auth store restores, reports "unreachable", registers, signs in and out.
+
+## ADR-025: Mobile sign-in, map and machine screens (2026-10-29)
+
+**Navigation.** React Navigation's native stack (`@react-navigation/native-stack`), rather than Expo Router. The app has three screens in Phase 9 and a handful more in Phase 10; an explicit, typed stack (`src/navigation.ts`) is easier to follow and test than file-based routes. The stack depends on the auth store: signed out, only **SignIn** exists; signed in, **Map** and **Machine** exist. Signing out, or the server ending the session (ADR-024), therefore drops the customer back to sign-in without any navigation calls.
+
+**Sign in first.** Browsing machines doesn't need an account (ADR-011), but reserving does, and the MVP story starts with a customer who reserves. One entry point keeps the app and the demo simple. The sign-in screen also registers. It checks the form before calling the server (name, email, and the backend's 12-character password minimum) and otherwise shows the server's own message.
+
+**Where to search from** (`src/services/location.ts`):
+- The phone's position if the customer allows location access (`expo-location`, foreground only, last known position first so the map appears quickly).
+- Otherwise, or if location services fail, the **Bucharest demo area** (44.44, 26.08), with a banner saying so.
+- If the phone is somewhere with no machines within 20 km, for example a presenter outside Bucharest, the empty list offers **"Show the Bucharest demo area"**.
+- The search radius is the API's maximum, 20 km, which covers the demo city.
+
+**What a machine looks like** (`src/machineState.ts`). One function decides, in this order, so the most important fact wins:
+
+| State | When | Colour |
+|---|---|---|
+| Maintenance | `status` isn't `active` | grey |
+| Offline | not online (ADR-021) | red |
+| Sold out | nothing available | amber |
+| Open | otherwise | teal |
+
+The map pins and the list badges use the same colours. The machine screen shows each stocked slot with its product, price (integer cents formatted as `12.99 RON`), what is **available** (physical stock minus active holds, ADR-011), a low-stock flag, and a warning when the machine is offline or under maintenance. Pull to refresh reloads; Phase 10 adds live updates.
+
+**State.** A Zustand `machines` store holds the search centre and its source, the nearby list and each machine's detail as `loading` / `ready` / `error`. A failed reload keeps the last good data on screen with an error banner, rather than blanking the list.
+
+**Found on the way: Expo's fetch can't take a Request object.** In SDK 58 the global `fetch` is Expo's native `expo/fetch`. `openapi-fetch` builds a `Request`, and the 9-B client passed it straight on, which `expo/fetch` refuses ("Unsupported BodyInit type"). The Jest tests didn't catch it because they replaced `fetch` entirely. The client now re-sends each request as a plain URL plus init: headers as a record, and the JSON body read once as text, which also serves the retry after a refresh. The test fake now rejects anything but a URL string, as Expo does; the old client fails 7 tests against it. A one-off run of the real client and stores against the Compose stack, through a Node HTTP adapter with the same contract, signed in, listed the six machines with distances, loaded a machine's slots and signed out.
+
+**Evidence.** 39 Jest tests in total. Beyond ADR-024's: formatting; the machine-state order; locating with permission granted, refused, or failing; the query parameters sent; keeping the last list on a failed reload; machine details and a 404; and screen tests with React Native Testing Library (v14, async): sign-in success, a wrong password shows the server's message, form checks before any request, the map list's states and navigation, the demo-area fallback, a connection error, and the machine screen's prices, counts, low-stock, sold-out and offline warning. Android and iOS bundles build with `npx expo export`.

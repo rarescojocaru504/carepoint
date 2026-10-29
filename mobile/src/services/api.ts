@@ -79,11 +79,38 @@ export function onSessionEnded(listener: Listener): () => void {
   };
 }
 
+interface Outgoing {
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  body: string | undefined;
+}
+
+/** openapi-fetch hands us a Request object. It is re-sent as a plain URL and
+ * init, never as a Request: React Native's fetch can't read a Request built by
+ * a different implementation ("Unsupported BodyInit type"). Every body this
+ * API takes is JSON, so reading it as text once is safe, and the same text
+ * serves the retry after a refresh. */
+async function outgoing(request: Request): Promise<Outgoing> {
+  const headers: Record<string, string> = {};
+  request.headers.forEach((value, key) => {
+    headers[key] = value;
+  });
+  const text = request.method === "GET" || request.method === "HEAD" ? "" : await request.text();
+  return { url: request.url, method: request.method, headers, body: text === "" ? undefined : text };
+}
+
+function send(out: Outgoing, accessToken: string | null): Promise<Response> {
+  const headers = { ...out.headers };
+  if (accessToken !== null) headers.authorization = `Bearer ${accessToken}`;
+  // fetch is looked up per call, not captured at import, so tests can replace it.
+  return fetch(out.url, { method: out.method, headers, body: out.body });
+}
+
 // Auth endpoints never carry the access token and never trigger a refresh.
-// (fetch is looked up per call, not captured at import, so tests can replace it.)
 const publicClient = createClient<paths>({
   baseUrl: API_URL,
-  fetch: (request: Request) => fetch(request),
+  fetch: async (request: Request) => send(await outgoing(request), null),
 });
 
 async function storePair(pair: TokenPair): Promise<void> {
@@ -125,20 +152,12 @@ export function refreshSession(): Promise<RefreshResult> {
   return refreshing;
 }
 
-function withToken(request: Request): Request {
-  const token = getAccessToken();
-  if (token === null) return request;
-  const headers = new Headers(request.headers);
-  headers.set("Authorization", `Bearer ${token}`);
-  return new Request(request, { headers });
-}
-
 async function authorizedFetch(request: Request): Promise<Response> {
-  const retry = request.clone(); // the body can only be read once
-  const response = await fetch(withToken(request));
+  const out = await outgoing(request);
+  const response = await send(out, getAccessToken());
   if (response.status !== 401) return response;
   if ((await refreshSession()) !== "ok") return response;
-  return fetch(withToken(retry));
+  return send(out, getAccessToken());
 }
 
 export const api = createClient<paths>({ baseUrl: API_URL, fetch: authorizedFetch });
