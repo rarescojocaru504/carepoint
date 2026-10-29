@@ -31,6 +31,7 @@ from app.services.machine_auth import (
     verify_machine_request,
 )
 from app.services.machine_gateway import MachineDecommissionedError
+from app.services.payments import PaymentProvider, get_payment_provider
 from app.services.rate_limit import RateLimitRule
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["machine"])
 
 SessionFactory = Annotated[async_sessionmaker[AsyncSession], Depends(get_session_factory)]
+Provider = Annotated[PaymentProvider, Depends(get_payment_provider)]
 
 # Close codes (RFC 6455 and the 4000-4999 private range), see the protocol spec.
 CLOSE_UNSUPPORTED_DATA = 1003  # binary frame
@@ -105,7 +107,7 @@ async def _authenticate(
 
 @router.websocket("/ws/machines")
 async def machine_gateway_socket(
-    websocket: WebSocket, redis: RedisClient, sessions: SessionFactory
+    websocket: WebSocket, redis: RedisClient, sessions: SessionFactory, provider: Provider
 ) -> None:
     settings = get_settings()
     if SUBPROTOCOL not in websocket.scope.get("subprotocols", []):
@@ -116,7 +118,7 @@ async def machine_gateway_socket(
         return
 
     await websocket.accept(subprotocol=SUBPROTOCOL)
-    connection = await machine_gateway.open_connection(sessions, redis, machine)
+    connection = await machine_gateway.open_connection(sessions, redis, provider, machine)
     try:
         await websocket.send_text(
             Welcome(
@@ -126,6 +128,9 @@ async def machine_gateway_socket(
                 heartbeat_interval_seconds=settings.machine_heartbeat_interval_seconds,
             ).model_dump_json()
         )
+        # Dispenses the machine may have missed while disconnected (ADR-018).
+        for command in await machine_gateway.pending_commands(connection):
+            await websocket.send_text(command.model_dump_json())
         await _serve(websocket, connection)
     finally:
         await machine_gateway.close_connection(connection)
@@ -166,6 +171,8 @@ async def _serve(websocket: WebSocket, connection: machine_gateway.MachineConnec
             await websocket.close(CLOSE_DECOMMISSIONED, "machine decommissioned")
             return
         await websocket.send_text(outcome.reply.model_dump_json())
+        for message in outcome.follow_up:
+            await websocket.send_text(message.model_dump_json())
         rejected += outcome.rejected
         if rejected >= settings.machine_ws_max_invalid_messages:
             await websocket.close(CLOSE_POLICY_VIOLATION, "too many invalid messages")

@@ -85,6 +85,9 @@ class Settings(BaseSettings):
     machine_ws_rate_limit: RateLimitSpec = "30/10"
     # Malformed or rejected messages tolerated per connection before it is closed.
     machine_ws_max_invalid_messages: int = Field(default=10, ge=1, le=1000)
+    # Once a pickup code is accepted, the hold lasts at least this much longer,
+    # so the expiry can never overtake a dispense in progress (ADR-018).
+    dispense_timeout_seconds: int = Field(default=120, ge=10, le=900)
 
     @model_validator(mode="after")
     def _heartbeat_inside_online_window(self) -> Self:

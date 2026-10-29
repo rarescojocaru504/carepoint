@@ -24,6 +24,7 @@ from app.models import (
 from app.schemas.machine_protocol import ProtocolErrorCode
 from app.services import hold_store
 from app.services.inventory import record_stock_movement
+from app.services.pickups import slots_in_flight
 
 logger = logging.getLogger(__name__)
 
@@ -150,10 +151,13 @@ async def reconcile_stock_report(
                 ProtocolErrorCode.SLOT_NOT_CONFIGURED, f"slot {code} has no product assigned"
             )
 
+    # A slot with a dispense under way is skipped: its count is in motion, and
+    # the dispense result, not this report, accounts for the units (ADR-018).
+    in_flight = await slots_in_flight(session, [slot.id for slot in slots.values()])
     corrections: list[tuple[uuid.UUID, StockCorrection]] = []
     for code, reported in sorted(counts.items()):
         slot = slots[code]
-        if reported == slot.quantity:
+        if reported == slot.quantity or slot.id in in_flight:
             continue
         correction = StockCorrection(code, slot.quantity, reported)
         await record_stock_movement(

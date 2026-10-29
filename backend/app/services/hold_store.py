@@ -59,6 +59,18 @@ return {1, expires}
 """
 )
 
+# ARGV: reservation_id, units, expiry_ms. Moves a hold's expiry later (never
+# earlier) or, if Redis lost it, puts it back. Returns 1, or -1 = needs init.
+_EXTEND = (
+    _PRELUDE
+    + """
+if redis.call('EXISTS', KEYS[1]) == 0 then return -1 end
+redis.call('ZADD', KEYS[2], 'GT', ARGV[3], ARGV[1])
+redis.call('HSET', KEYS[3], ARGV[1], ARGV[2])
+return 1
+"""
+)
+
 # ARGV: reservation_id. Returns units released (0 if it was not held).
 _RELEASE = """
 local units = redis.call('HGET', KEYS[3], ARGV[1])
@@ -231,6 +243,27 @@ async def reserve(
             return ReserveResult(granted=True, expires_at=_ms_to_datetime(value), available=0)
         if status == 0:
             return ReserveResult(granted=False, expires_at=None, available=value)
+        await initialise(redis, slot_id, await load_state(slot_id))
+    raise RuntimeError(f"hold store for slot {slot_id} did not initialise")
+
+
+async def extend(
+    redis: Redis,
+    slot_id: uuid.UUID,
+    reservation_id: uuid.UUID,
+    units: int,
+    expires_at: datetime,
+    load_state: SlotStateLoader,
+) -> None:
+    """Keep a hold until at least `expires_at` (a dispense is in flight).
+
+    Only for a reservation Postgres says is active: if Redis lost the hold it
+    is restored, since the units are genuinely held.
+    """
+    for _attempt in range(2):
+        args = (str(reservation_id), units, _datetime_to_ms(expires_at))
+        if int(await _eval(redis, _EXTEND, slot_id, *args)) == 1:
+            return
         await initialise(redis, slot_id, await load_state(slot_id))
     raise RuntimeError(f"hold store for slot {slot_id} did not initialise")
 

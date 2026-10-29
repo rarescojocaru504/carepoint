@@ -12,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.models import (
+    DispenseCommand,
+    DispenseCommandStatus,
     Machine,
     MachineSlot,
     MachineStatus,
@@ -65,6 +67,10 @@ class ReservationNotCancellableError(ReservationError):
     def __init__(self, status: ReservationStatus) -> None:
         super().__init__(f"reservation is {status.value}")
         self.status = status
+
+
+class ReservationBeingDispensedError(ReservationError):
+    """The machine is dispensing it; cancelling now would void a delivered order."""
 
 
 @dataclass(frozen=True)
@@ -284,6 +290,14 @@ async def cancel_reservation(
     status = effective_status(reservation)
     if status not in ACTIVE_HOLD_STATUSES:
         raise ReservationNotCancellableError(status)
+    # Too late once the machine is dispensing it (ADR-018).
+    if await session.scalar(
+        select(DispenseCommand.id).where(
+            DispenseCommand.reservation_id == reservation.id,
+            DispenseCommand.status == DispenseCommandStatus.OPEN,
+        )
+    ):
+        raise ReservationBeingDispensedError("the item is being dispensed")
     reservation.status = ReservationStatus.CANCELLED
     slot_id = reservation.slot_id
     await session.commit()

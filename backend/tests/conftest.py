@@ -6,6 +6,7 @@ import socket
 # background loops off (set before the app and its settings are imported).
 os.environ.setdefault("BACKGROUND_WORKERS_ENABLED", "false")
 from collections.abc import AsyncIterator, Iterator
+from typing import Any
 from urllib.parse import urlsplit
 
 import httpx
@@ -21,7 +22,9 @@ from app.core.config import get_settings
 from app.core.db import get_db, get_session_factory
 from app.core.redis import get_redis
 from app.main import app
+from app.models import Machine, MachineSlot
 from app.services.payments import MockPaymentProvider, get_payment_provider
+from tests.fake_machine import FakeMachine, MakeMachine
 from tests.helpers import alembic_config
 from tests.world import World
 
@@ -207,3 +210,21 @@ async def gateway_url(world: World, provider: MockPaymentProvider) -> AsyncItera
     finally:
         server.should_exit = True
         await task
+
+
+@pytest.fixture
+async def make_machine(world: World, gateway_url: str) -> AsyncIterator[MakeMachine]:
+    """Factory for committed, keyed machines plus a FakeMachine client for each."""
+    machines: list[FakeMachine] = []
+
+    async def make(
+        slots: dict[str, int | None] | None = None, **kwargs: Any
+    ) -> tuple[FakeMachine, Machine, dict[str, MachineSlot]]:
+        machine, key, made = await world.machine(slots or {"A1": 5}, **kwargs)
+        fake = FakeMachine(gateway_url, machine.serial_number, key)
+        machines.append(fake)
+        return fake, machine, made
+
+    yield make
+    for fake in machines:
+        await fake.close()

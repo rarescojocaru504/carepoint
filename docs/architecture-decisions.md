@@ -474,3 +474,68 @@ Machines keep one WebSocket open to `/api/v1/ws/machines`. The wire format is sp
   - the Redis mirror;
   - the decommission check;
   - the size limit and the text-only check.
+
+## ADR-018: Machine gateway, part 2: pickup and dispense commands (2026-10-29)
+
+The pickup at the machine is `verify_code` → `verify_result` + `dispense` → `dispense_result`, over the ADR-017 connection. The machine's duties are in `machine-protocol.md` §6. This ADR covers the server side.
+
+**Commands are rows.**
+- **The table:** every `dispense` sent is a row in `dispense_commands` (migration `0007`), and its UUID is the `command_id` on the wire.
+- **Matching results:** a result, resent after any number of reconnects, always finds exactly the command it belongs to. A result for another machine's command is `unknown_command`.
+- **One open dispense per reservation:** a partial unique index (`status = 'open'`) allows at most one open dispense per reservation, as a backstop to the in-progress check.
+- **Status values:** `open` → `succeeded` | `failed` | `abandoned`.
+
+**The expiry can't overtake a dispense.**
+- **Extending the hold:** accepting a code extends the hold to at least now + `DISPENSE_TIMEOUT_SECONDS` (120), Redis first and then Postgres. If Postgres then fails, Redis just holds the units longer than needed, which is safe and tidied by the sweeper or reconciliation. The new `hold_store.extend` script uses `ZADD GT`, so an extension never shortens a hold, and it restores the hold if Redis had lost it.
+- **Why it matters:** without the extension, a code typed 10 s before expiry would release the units for sale while they were coming out of the machine.
+- **While a dispense is open:**
+  - a second `verify_code` gets `pickup_in_progress`;
+  - the customer can't cancel (409 `pickup_in_progress`), because cancelling would void the payment for goods already being delivered;
+  - stock reports leave that slot alone (its count is changing, and the result accounts for it).
+
+**Results: charge only for a complete, on-time pickup.**
+
+| Result | Reservation | Payment | Stock ledger |
+|---|---|---|---|
+| `dispensed`, all units, before the deadline | `dispensed` | captured | `dispense` −N |
+| `failed`, 0 units | stays `paid`; the same code can be retried | still authorised; voided if it expires | none |
+| `failed`, some units | `cancelled` | voided | `dispense` −k, noted as partial |
+| anything after the deadline (or after the sweeper marked it `abandoned`) | unchanged | not captured (voided at expiry) | `dispense` −k, noted as late |
+
+- **Late or partial results are never charged.** That is the simple, customer-friendly rule, and the case is rare.
+- **The deadline is what counts:** a result one second after `expires_at` is late even if the sweeper hasn't run yet.
+- **Results are idempotent:** a resent result for a finished command is acknowledged and changes nothing (tested: one ledger row, one capture).
+- **Contradictory results are rejected:** a result that contradicts its command, such as `dispensed` with fewer units, is rejected before anything is written.
+
+**Disconnects.**
+- **On every (re)connect:** after `welcome`, the server resends every open command whose reservation is still pickupable. It can't know whether the machine received a command; the machine's at-most-once rule (by `command_id`) makes the resend safe.
+- **After the deadline:** the command isn't resent, because nobody is waiting at the machine any more.
+- **Abandoning:** the expiry sweeper marks the open commands of reservations it expires as `abandoned`, in the same transaction.
+
+**Stock stays right even when results are lost.**
+- **Late results:** a late result still records the units that came out, so stock is right when the machine comes back much later.
+- **Order of results and stock reports:** the machine sends stored results before any stock report. If a machine breaks that rule, or lost its storage, its stock report is authoritative (ADR-017).
+- **Self-healing:** any double count is corrected by the next report, and an interim error only ever *under*-states stock, which can't oversell.
+
+**Lock order:** everywhere it is the reservation row, then its command. That covers `request_pickup`, `record_dispense_result`, cancellation and the sweeper, so no two of them can deadlock. The sweeper's `SKIP LOCKED` also means it never waits on a pickup in progress.
+
+**A wrong code is not a protocol error.** `verify_result` refusals (`invalid_code`, `too_many_attempts` with `retry_after_seconds`, `pickup_in_progress`, `machine_unavailable`) never count towards the connection's invalid-message limit. Otherwise a few customer typos would disconnect the machine. Guessing is held back by the per-machine lockout instead (ADR-016).
+
+**Evidence:**
+- **26 tests** against a real Uvicorn server and a fake machine client. They cover:
+  - pay → code at the machine → dispensed and captured, with the ledger and Redis checked, and the code dead afterwards;
+  - QR;
+  - hold extension in Postgres and Redis;
+  - wrong code not counted as invalid; lockout including the correct code; another machine's code; maintenance;
+  - no second dispense or cancel while one is open;
+  - a failed dispense, then a retry with the same code;
+  - partial: cancelled, voided, −1 in the ledger;
+  - a resent result applied once;
+  - 3 results that contradict their command; unknown and foreign commands; 5 malformed results;
+  - **a command missed during a disconnect, resent on reconnect;**
+  - **a disconnect after dispensing but before the result** (outbox, resend, duplicate ignored, one capture);
+  - **a machine gone past the deadline:** abandoned and voided, then a late result recorded as stock, nobody charged;
+  - a late result before the sweeper has run;
+  - no resend after the deadline;
+  - a stock report leaving a slot mid-dispense alone.
+- **Mutation testing:** 16 mutants were planted and all were caught. The first run let one survive: resending commands after the deadline. Adding the missing test (`test_no_resend_once_the_deadline_has_passed`) caught it.

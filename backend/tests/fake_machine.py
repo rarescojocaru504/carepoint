@@ -4,6 +4,8 @@ handshake exactly as device firmware must (docs/machine-protocol.md)."""
 import asyncio
 import itertools
 import json
+import time
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -11,6 +13,7 @@ from websockets.asyncio.client import ClientConnection, connect
 from websockets.exceptions import ConnectionClosed
 from websockets.typing import Subprotocol
 
+from app.models import Machine, MachineSlot
 from app.schemas.machine_protocol import SUBPROTOCOL
 from app.services.machine_auth import sign_request
 
@@ -82,3 +85,15 @@ class FakeMachine:
     async def close(self) -> None:
         if self._ws is not None:
             await self._ws.close()
+
+
+# The `make_machine` fixture (conftest.py): slots -> (client, machine row, slots by code).
+MakeMachine = Callable[..., Awaitable[tuple["FakeMachine", Machine, dict[str, MachineSlot]]]]
+
+
+async def eventually(check: Callable[[], Awaitable[bool]], within: float = TIMEOUT) -> None:
+    """Poll `check` until it holds; fail after `within` seconds."""
+    deadline = time.monotonic() + within
+    while not await check():
+        assert time.monotonic() < deadline, "condition not reached in time"
+        await asyncio.sleep(0.05)

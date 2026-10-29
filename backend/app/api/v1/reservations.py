@@ -134,7 +134,7 @@ async def get_one(
     status_code=status.HTTP_204_NO_CONTENT,
     responses={
         404: {"description": "Not found (or not yours)"},
-        409: {"description": "Already expired or dispensed"},
+        409: {"description": "Already expired or dispensed, or being dispensed right now"},
     },
 )
 async def cancel(
@@ -154,6 +154,10 @@ async def cancel(
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             {"code": "not_cancellable", "message": str(exc), "status": exc.status.value},
+        ) from None
+    except service.ReservationBeingDispensedError as exc:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, {"code": "pickup_in_progress", "message": str(exc)}
         ) from None
 
 

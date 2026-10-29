@@ -1,6 +1,6 @@
 # CarePoint machine protocol
 
-**Version 1** (WebSocket subprotocol `carepoint.v1`). Revision 1 covers the connection, telemetry and stock counts. The pickup commands (`verify_code`, `dispense`, `dispense_result`) are added in revision 2, together with the rest of Phase 6.
+**Version 1** (WebSocket subprotocol `carepoint.v1`), revision 2: the connection, telemetry, stock counts and pickups (§3–§6).
 
 This is the contract between the CarePoint backend and a vending machine. Anything that follows it can replace the simulator without any change to the backend: a Raspberry Pi, an ESP32 or a Python daemon. Every message is described here, and the exact JSON Schema of every message is in [`machine-protocol.schema.json`](machine-protocol.schema.json). That file is generated from the server's own validation models, and a test fails if the two drift apart. The design rationale is in ADR-010 and ADR-017 in [`architecture-decisions.md`](architecture-decisions.md).
 
@@ -52,8 +52,10 @@ The server never says which check failed; the reason is written to its log.
 - **Message type:** every message has a `type`.
 - **Message id:** every message from the machine also has an `id` of 1–64 characters from `A-Z a-z 0-9 _ -`. The machine chooses it, and it should be unique on the connection (a counter is fine). The server echoes it as `reply_to`.
 - **Exactly one reply:** every machine message gets one reply, in the order the messages were sent:
-  - an `ack`, meaning it was applied; or
+  - an `ack`, meaning it was applied;
+  - a `verify_result`, for `verify_code`; or
   - an `error`, meaning nothing of it was applied (§4).
+- **Server commands:** the server also sends **commands** of its own (`dispense`). They have no `reply_to` and can arrive at any time, including straight after `welcome`.
 - **Strict validation, no coercion:** the server rejects the message instead of guessing:
   - unknown fields;
   - a string where a number is expected (`"5"`), or `true` for a number;
@@ -123,8 +125,10 @@ What the server does with it:
 - **Matching counts:** a slot whose count matches changes nothing and writes nothing.
 - **Partial reports:** slots that aren't listed are left alone, so a machine can report one slot at a time.
 
+A slot with a dispense **in progress** (a `dispense` sent but no result received yet) is left alone even if its count differs. Its count is changing, and the `dispense_result` accounts for those units, so the server doesn't correct it ahead of the result.
+
 When to send it:
-- after connecting;
+- after connecting, and after any stored `dispense_result`s (§6);
 - after a restock;
 - whenever its own count changes for a reason other than a dispense, for example an operator's adjustment.
 
@@ -149,6 +153,68 @@ Reply: `ack`, or one of those `error`s.
 
 The event is logged for the operator dashboard. Reply: `ack`.
 
+### Machine → server: `verify_code`
+
+```json
+{"type": "verify_code", "id": "46", "credential": "482913"}
+```
+
+| Field | Rule |
+|---|---|
+| `credential` | 1–64 printable ASCII characters: what the customer typed (6 digits) or what the camera read from their QR code (`CP1:<reservation id>:<code>`), passed on unchanged |
+
+Reply: `verify_result`. If it is `ok`, a `dispense` command follows straight away.
+
+### Server → machine: `verify_result`
+
+```json
+{"type": "verify_result", "reply_to": "46", "ok": true, "refusal": null,
+ "retry_after_seconds": null, "command_id": "9b2e…"}
+```
+
+| `refusal` | Meaning | What the kiosk should show |
+|---|---|---|
+| `invalid_code` | No paid, unexpired order with this code at **this** machine | "Code not recognised" |
+| `too_many_attempts` | Too many wrong codes at this machine; even a correct one waits. `retry_after_seconds` says how long | "Please wait N seconds" |
+| `pickup_in_progress` | This order is already being dispensed | Keep showing the dispense in progress |
+| `machine_unavailable` | The machine is in maintenance | "Out of service" |
+
+- **Wrong codes don't count against the connection:** they are the customer's mistake, not the machine's, so they never count towards the connection's invalid-message limit.
+- **Guessing is limited per machine:** guessing is held back by a per-machine lockout instead (ADR-016).
+
+### Server → machine: `dispense` (command)
+
+```json
+{"type": "dispense", "command_id": "9b2e…", "reservation_id": "c41a…", "slot": "A1", "quantity": 1}
+```
+
+Release `quantity` units from `slot`, then report what happened with `dispense_result`. The rules in §6 are what make a dispense safe across disconnects.
+
+### Machine → server: `dispense_result`
+
+```json
+{"type": "dispense_result", "id": "47", "command_id": "9b2e…", "outcome": "dispensed", "units_dispensed": 1}
+{"type": "dispense_result", "id": "48", "command_id": "9b2e…", "outcome": "failed", "units_dispensed": 0, "error_code": "jam"}
+```
+
+| Field | Rule |
+|---|---|
+| `command_id` | the `command_id` of the `dispense`, issued to **this** machine |
+| `outcome` | `"dispensed"` when every unit came out, otherwise `"failed"` |
+| `units_dispensed` | integer, 0–10: the units that physically came out. It must equal the command's `quantity` for `dispensed` and be lower than it for `failed` |
+| `error_code` | required when `failed`, and absent when `dispensed`; same values as `error_event` |
+
+What the server does:
+
+| Result | Order | Stock |
+|---|---|---|
+| `dispensed` | Completed and **charged** | Units leave the ledger |
+| `failed`, 0 units | Stays paid. The customer can enter the same code again until the order expires; if it expires, the payment is voided | Unchanged |
+| `failed`, some units | **Cancelled and not charged**: an incomplete order is never charged | The units that came out leave the ledger |
+| Any result that arrives after the order expired (§6) | Not charged | The units that came out leave the ledger |
+
+Reply: `ack`. The same result sent again for a finished command is also acknowledged and changes nothing. A result that contradicts the command (for example `dispensed` with fewer units than ordered) gets `out_of_range`. An unknown command id, or another machine's, gets `unknown_command`.
+
 ### Server → machine: `ack`
 
 ```json
@@ -171,6 +237,7 @@ The event is logged for the operator dashboard. Reply: `ack`.
 | `unknown_slot` | A stock report names a slot this machine doesn't have | No: check the slot configuration |
 | `out_of_range` | A stock count exceeds the slot's capacity | No: recount |
 | `slot_not_configured` | Items reported in a slot that has no product assigned | No: an operator must assign a product |
+| `unknown_command` | A `dispense_result` for a command this machine was never sent | No: drop that stored result |
 | `internal_error` | The server failed (database or Redis trouble), not the machine | **Yes**: resend the same message later |
 
 Each rejected message, except `internal_error`, counts towards a limit of **10 per connection**. After that the server closes the connection (§5).
@@ -197,7 +264,42 @@ Each rejected message, except `internal_error`, counts towards a limit of **10 p
 | 4003 | The machine was decommissioned by an operator | Stop reconnecting and show "out of service" |
 | 4008 | Nothing received within the online window (90 s) | Reconnect, and send heartbeats on time |
 
-## 6. A typical session
+## 6. Dispensing safely
+
+A dispense is the only operation that moves goods and money, so a machine **must** follow these four rules. The server is built around them; ADR-018 explains the design.
+
+1. **Execute a `command_id` at most once.** Store the command id durably *before* dispensing. If the same `dispense` arrives again (the server resends open commands after every reconnect, because it can't know what you received), **don't dispense again**: send that command's stored `dispense_result` once more. If a dispense was interrupted, for example by a power cut, don't restart it; report it as `failed` with the units that actually came out.
+2. **Keep every `dispense_result` until it is acknowledged.** Store it before sending, and delete it only once the `ack` for it arrives. Storage must survive a reboot.
+3. **After (re)connecting, send stored results first**, before any `stock_report`, so the count you report already includes them.
+4. **Count honestly.** Report the units that physically left, even after a fault. A partial dispense is `failed` with the true `units_dispensed`.
+
+What the server guarantees in return:
+- **The hold outlasts the dispense:** when a code is accepted, the order's hold is extended to at least **120 s** from that moment (`DISPENSE_TIMEOUT_SECONDS`). A slow dispense can't race the expiry, and the units can't be sold to someone else while they are coming out.
+- **One dispense at a time:** while a dispense is open, the order can't be cancelled from the app, and the code returns `pickup_in_progress`.
+- **Resending is limited:** an open `dispense` is resent after a reconnect only while its order is still valid. After that nobody is waiting at the machine, and resending would hand an item to whoever walks by.
+- **Late results are still recorded:** if no result arrives before the extended hold ends, the order expires, its payment is voided and the command is marked abandoned. A result that arrives later is still recorded, so stock stays correct, but nobody is charged.
+
+**Disconnect in the middle of a dispense:**
+
+```
+machine                                   server
+   |-- verify_code -------------------------->|  code ok, hold extended, command open
+   |<-------------- verify_result (ok) -------|
+   |<-------------- dispense (C1) ------------|
+   |   (dispenses, stores result for C1)      |
+   X  connection lost before sending it       |
+   |-- new signed handshake ----------------->|
+   |<-------------- welcome ------------------|
+   |<-------------- dispense (C1)  (resent) --|  C1 is still open
+   |-- dispense_result (C1, from storage) --->|  order completed, payment captured
+   |<-------------- ack ----------------------|
+   |-- dispense_result (C1)  (answer to the   |
+   |   resent C1: not dispensed again) ------>|  already applied: no change
+   |<-------------- ack ----------------------|
+   |-- stock_report ------------------------->|
+```
+
+## 7. A typical session
 
 ```
 machine                                             server
@@ -210,6 +312,11 @@ machine                                             server
    |<-------------------- {"type":"ack","reply_to":"2"}  |
    |-- {"type":"heartbeat","id":"3",...}  (every 30 s) ->|
    |<-------------------- {"type":"ack","reply_to":"3"}  |
+   |-- {"type":"verify_code","id":"4",...} ------------->|  customer typed a code
+   |<-- {"type":"verify_result","reply_to":"4","ok":true}|
+   |<-- {"type":"dispense","command_id":"C1",...}        |
+   |-- {"type":"dispense_result","id":"5",...} --------->|
+   |<-------------------- {"type":"ack","reply_to":"5"}  |
 ```
 
 ## Changelog
@@ -217,3 +324,4 @@ machine                                             server
 | Revision | Date | Change |
 |---|---|---|
 | 1 | 2026-10-29 | Handshake, `welcome`, `heartbeat`, `telemetry`, `stock_report`, `error_event`, `ack`, `error`, close codes |
+| 2 | 2026-10-29 | Pickups: `verify_code`, `verify_result`, `dispense`, `dispense_result`, the `unknown_command` error, §6 dispensing rules; `stock_report` leaves slots mid-dispense alone |

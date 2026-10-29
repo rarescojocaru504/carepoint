@@ -125,14 +125,14 @@ async def rotate_code(
     )
     if reservation is None:
         raise PickupReservationNotFoundError("reservation not found")
-    if not _is_pickupable(reservation):
+    if not is_pickupable(reservation):
         raise NotPickupableError("only paid, unexpired reservations have a pickup code")
     credential = await assign_code(session, reservation)
     await session.commit()
     return credential
 
 
-def _is_pickupable(reservation: Reservation) -> bool:
+def is_pickupable(reservation: Reservation) -> bool:
     # Same rule (and clock) as reservations.effective_status.
     return reservation.status is ReservationStatus.PAID and reservation.expires_at > datetime.now(
         UTC
