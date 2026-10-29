@@ -337,3 +337,5 @@ Every job above is in `automerge.needs`; a new job must be added there in the sa
 - **Live-notice tests see extra notices.** Redis pub/sub ignores database numbers. Filter by your own `machine_id`, as `tests/test_admin_events.py` does.
 - **asyncio on Python 3.11.** Don't wrap long-lived sessions in `asyncio.TaskGroup`, and prefer `asyncio.timeout` over `asyncio.wait_for`; both can hide a cancellation on 3.11 (#22).
 - **Seeing everything.** `docker compose logs --no-color > logs.txt` collects every service's output in one file.
+- **Following one request.** Every response has an `X-Request-ID` header, and every backend log line is JSON with a `request_id` (ADR-029). Find everything one request did with `docker compose logs backend --no-log-prefix | grep <request id>`. For readable logs while developing, run the backend with `LOG_FORMAT=text`.
+- **Metrics.** `GET /metrics` (Prometheus format) needs an operator's access token, or `Authorization: Bearer $METRICS_TOKEN` when that is set. It shows request counts and latency per route, machines by state, reservations by status and units available.

@@ -990,3 +990,50 @@ Re-reads are debounced by 300 ms per target, so a dispense, which sends several 
   - after the code was typed at CP-BUC-0001's kiosk, the reservation turned `dispensed` from the live notice alone, and the code left memory;
   - switching the simulator's "offline" fault on and off made the machine screen show offline, then online again.
 - **Builds:** the Android and iOS bundles build.
+
+## ADR-029: Structured logs, request IDs and metrics (2026-10-29)
+
+**Request IDs** (`app/core/request_context.py`).
+- **Where the id comes from:** every HTTP request and every WebSocket connection gets one. An incoming `X-Request-ID` is kept only if it is 8–64 characters of `A-Z a-z 0-9 . _ -`, so a caller can't inject newlines or bloat log lines; otherwise a random UUID (hex) is used.
+- **Where it goes:** it is echoed in the `X-Request-ID` response header, including on errors, and stored in a context variable, so **every log line written while handling that request, in any service, carries it.** A customer's support screenshot of an error's id finds every related log line.
+- **Implementation:** a plain ASGI middleware, not Starlette's `BaseHTTPMiddleware`, which doesn't suit event streams and WebSockets.
+
+**Logs** (`app/core/logging.py`).
+- **One handler** on the root logger. Uvicorn's loggers are routed through it, and uvicorn's own access log is replaced by the middleware's.
+- **`LOG_FORMAT=json`** (the default) writes one JSON object per line: `ts` (UTC), `level`, `logger`, `message`, `request_id`, and any `extra=` fields such as `method`, `route`, `status` and `duration_ms` on access lines. Only plain values are kept, so a library's object never turns into a meaningless `<object at 0x…>`.
+- **`LOG_FORMAT=text`** is easier to read during development. `LOG_LEVEL` sets the level.
+- **Quiet probes:** access lines for `/health`, `/ready` and `/metrics` are logged at DEBUG, so the 10-second Docker health checks don't drown the useful lines.
+
+**Metrics:** `GET /metrics`, in Prometheus text format, using `prometheus-client`.
+
+| Metric | What |
+|---|---|
+| `carepoint_http_requests_total{method,route,status}` | requests handled |
+| `carepoint_http_request_duration_seconds{method,route}` | latency histogram; for event streams, how long the stream was open |
+| `carepoint_machines{state}` | online, offline, maintenance |
+| `carepoint_reservations{status}` | by effective status (a lapsed hold counts as expired) |
+| `carepoint_units_available` | units customers can reserve right now |
+
+- **Labels use the route template** (`/api/v1/machines/{machine_id}`), never the raw path, so ids can't create unbounded series. A test checks this.
+- **Business gauges** are read from the database at scrape time: a few aggregate queries, always consistent with the dashboard's KPIs (ADR-021).
+- **Not public:** active reservations and offline machines are business information.
+  - A scraper sends `Authorization: Bearer <METRICS_TOKEN>`, compared in constant time.
+  - A signed-in operator or admin can read the metrics with their access token.
+  - Anyone else gets 401 or 403.
+  - In production a `METRICS_TOKEN` shorter than 32 characters stops the app from starting, like the other secrets.
+- The endpoint is left out of the OpenAPI schema: it is for operations tooling, not API clients.
+
+**Evidence:**
+- 20 tests:
+  - ids generated, unique and echoed, also on errors;
+  - a good incoming id is kept, and 6 malformed ones (too short, too long, a space, a newline, quotes, slashes) are replaced;
+  - one access line per request with its id, method, status, route template and duration;
+  - probes logged quietly;
+  - JSON lines with the id, extras and exception text, and only plain extras;
+  - configuring twice keeps one handler, and uvicorn's logs propagate to it;
+  - the text format;
+  - metrics refused to anonymous callers, customers and a wrong token, and readable by an operator and by the scraper token;
+  - request counts labelled by route template;
+  - the business gauges present;
+  - production refusing a short token.
+- On the Compose stack: the backend's log lines are JSON, and the machine gateway's lines carry their WebSocket connection's id. A request sent with `X-Request-ID: demo-req-0001` logged under that id. `/metrics` returned 401 without a token, and for the operator showed 5 machines online, 1 in maintenance and 239 units available.

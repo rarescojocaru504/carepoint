@@ -18,6 +18,14 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     environment: Literal["development", "test", "production"] = "development"
+
+    # --- observability (ADR-029) -----------------------------------------------------
+    # "json": one JSON object per line, for log collectors; "text" for reading locally.
+    log_format: Literal["json", "text"] = "json"
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+    # Bearer token a metrics scraper sends to GET /metrics. Unset: only signed-in
+    # operators and admins can read the metrics.
+    metrics_token: SecretStr | None = None
     project_name: str = "CarePoint API"
     api_v1_prefix: str = "/api/v1"
     currency: str = Field(default="RON", pattern=r"^[A-Z]{3}$")
@@ -115,6 +123,8 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "PICKUP_CODE_PEPPER must be set to >= 32 random characters in production"
                 )
+            if self.metrics_token is not None and len(self.metrics_token.get_secret_value()) < 32:
+                raise ValueError("METRICS_TOKEN must be >= 32 random characters in production")
         return self
 
 

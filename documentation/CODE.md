@@ -62,7 +62,9 @@ backend/
 │   │   ├── health.py      GET /health, GET /ready
 │   │   ├── sse.py         shared server-sent-event streaming (operator and customer streams)
 │   │   └── v1/            one module per area (thin handlers; logic is in services/)
-│   ├── core/              config.py (Settings), db.py (engine, sessions), redis.py, security.py (JWT, argon2)
+│   ├── core/              config.py (Settings), db.py (engine, sessions), redis.py, security.py (JWT, argon2),
+│   │                      logging.py (JSON logs), request_context.py (request ids, access log,
+│   │                      HTTP metrics), metrics.py (Prometheus metric definitions)
 │   ├── models/            SQLAlchemy 2 typed models (Mapped[...]); enums.py
 │   ├── schemas/           Pydantic request/response models (strict, InputModel forbids extra fields)
 │   ├── services/          all business logic (see 2.4)
@@ -96,6 +98,9 @@ Settings are read from environment variables; the names are the field names in u
 | `BACKGROUND_WORKERS_ENABLED` | true | tests set it false and drive the jobs directly |
 | `RATE_LIMIT_*` | various | `"<count>/<seconds>"` |
 | `CURRENCY` | `RON` | |
+| `LOG_FORMAT` | `json` | `json` (one object per line, with `request_id`) or `text` (ADR-029) |
+| `LOG_LEVEL` | `INFO` | |
+| `METRICS_TOKEN` | unset | bearer token for a scraper reading `GET /metrics`; operators can always read it |
 
 ### 2.3 Data model (`app/models/`, migrations in `alembic/versions/`)
 
@@ -144,6 +149,7 @@ Settings are read from environment variables; the names are the field names in u
 | | `inventory.py` | ledger writes: `record_stock_movement` |
 | **Operators** | `admin.py` | operator queries and actions: machines, slots, stock changes (also sent as `adjust_stock`), reservations, products |
 | | `kpis.py` | KPI summary, computed from the tables on each request |
+| | `ops_metrics.py` | the business gauges for `GET /metrics` (machines by state, reservations by status, units available) |
 | | `events.py` | `publish()` of change notices to `cp:events` (ADR-022); `publish_reservation()` also tells the owner on `cp:user-events:<user id>`; `customer_view()` filters what customers see; the per-user stream counter (ADR-026) |
 | **Demo** | `seeding.py`, `demo_data.py` | the idempotent demo dataset: 6 Bucharest machines, 12 products, 3 accounts |
 
@@ -154,6 +160,7 @@ The live interactive docs are at **http://localhost:8000/docs** (Swagger) and th
 | Area | Method and path | Who |
 |---|---|---|
 | Health | `GET /health`, `GET /ready` | anyone |
+| Metrics | `GET /metrics` (Prometheus text; not in the OpenAPI schema) | `METRICS_TOKEN`, or operator, admin |
 | Auth | `POST /auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout` | anyone (rate-limited) |
 | Me | `GET /me` | logged in |
 | Discovery | `GET /machines/nearby?lat&lng&radius_m&limit`, `GET /machines/{id}`, `GET /products`, `GET /products/{sku}/nearby` | anyone (rate-limited per IP) |
