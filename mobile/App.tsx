@@ -1,86 +1,84 @@
+import { NavigationContainer } from "@react-navigation/native";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useEffect } from "react";
+import { ActivityIndicator, Pressable, StyleSheet, Text } from "react-native";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 
+import { Button, Centered, colors } from "./src/components/ui";
 import { API_URL } from "./src/config";
-import { api, errorMessage, unwrap } from "./src/services/api";
+import type { RootStackParamList } from "./src/navigation";
+import { MachineScreen } from "./src/screens/MachineScreen";
+import { MapScreen } from "./src/screens/MapScreen";
+import { SignInScreen } from "./src/screens/SignInScreen";
 import { useAuth } from "./src/store/auth";
 
-type Check = { state: "checking" } | { state: "ok" } | { state: "failed"; message: string };
+const Stack = createNativeStackNavigator<RootStackParamList>();
 
-async function checkHealth(): Promise<Check> {
-  try {
-    await unwrap(api.GET("/health"));
-    return { state: "ok" };
-  } catch (error) {
-    return { state: "failed", message: errorMessage(error) };
-  }
-}
-
-// Phase 9-B placeholder: shows that the app reaches the API and restores a
-// stored session. Sign-in, the map and machine screens arrive in 9-C.
 export default function App() {
   const status = useAuth((s) => s.status);
-  const user = useAuth((s) => s.user);
   const restore = useAuth((s) => s.restore);
-  const [check, setCheck] = useState<Check>({ state: "checking" });
-  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    let active = true;
-    void checkHealth()
-      .then((result) => {
-        if (active) setCheck(result);
-      })
-      .then(restore);
-    return () => {
-      active = false;
-    };
-  }, [attempt, restore]);
-
-  const run = () => {
-    setCheck({ state: "checking" });
-    setAttempt((n) => n + 1);
-  };
+    void restore();
+  }, [restore]);
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>CarePoint</Text>
-      <Text style={styles.line}>API: {API_URL}</Text>
-      <Text style={styles.line}>
-        {check.state === "checking" && "Checking the connection…"}
-        {check.state === "ok" && "Connected ✓"}
-        {check.state === "failed" && `Not connected: ${check.message}`}
-      </Text>
-      <Text style={styles.line}>
-        Session: {status}
-        {user !== null ? ` (${user.email})` : ""}
-      </Text>
-      <Pressable style={styles.button} onPress={run} accessibilityRole="button">
-        <Text style={styles.buttonText}>Check again</Text>
-      </Pressable>
-      <StatusBar style="auto" />
-    </View>
+    <SafeAreaProvider>
+      <StatusBar style="dark" />
+      {status === "restoring" ? (
+        <Centered>
+          <ActivityIndicator size="large" color={colors.primary} />
+        </Centered>
+      ) : status === "unreachable" ? (
+        <Centered>
+          <Text style={styles.title}>Can&apos;t reach CarePoint</Text>
+          <Text style={styles.muted}>
+            Check your connection. The app is talking to {API_URL}.
+          </Text>
+          <Button title="Try again" onPress={() => void restore()} />
+        </Centered>
+      ) : (
+        <NavigationContainer>
+          <Stack.Navigator screenOptions={{ headerTintColor: colors.primary }}>
+            {status === "signedIn" ? (
+              <>
+                <Stack.Screen
+                  name="Map"
+                  component={MapScreen}
+                  options={{ title: "Nearby", headerRight: () => <SignOutButton /> }}
+                />
+                <Stack.Screen
+                  name="Machine"
+                  component={MachineScreen}
+                  options={({ route }) => ({ title: route.params.name })}
+                />
+              </>
+            ) : (
+              <Stack.Screen
+                name="SignIn"
+                component={SignInScreen}
+                options={{ headerShown: false }}
+              />
+            )}
+          </Stack.Navigator>
+        </NavigationContainer>
+      )}
+    </SafeAreaProvider>
+  );
+}
+
+function SignOutButton() {
+  const signOut = useAuth((s) => s.signOut);
+  return (
+    <Pressable accessibilityRole="button" onPress={() => void signOut()} hitSlop={8}>
+      <Text style={styles.headerButton}>Sign out</Text>
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#fff",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 24,
-    gap: 8,
-  },
-  title: { fontSize: 28, fontWeight: "700", marginBottom: 8 },
-  line: { fontSize: 15, textAlign: "center" },
-  button: {
-    marginTop: 16,
-    backgroundColor: "#0f766e",
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
-  buttonText: { color: "#fff", fontWeight: "600" },
+  title: { fontSize: 20, fontWeight: "700", color: colors.text },
+  muted: { color: colors.muted, textAlign: "center" },
+  headerButton: { color: colors.primary, fontSize: 16 },
 });

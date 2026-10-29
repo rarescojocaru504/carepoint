@@ -22,6 +22,8 @@ export function json(status: number, body: unknown): Response {
 export function installFakeServer(routes: Record<string, Handler>): { seen: Seen[] } {
   const seen: Seen[] = [];
   global.fetch = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    // Like React Native's fetch, which can't read a Request built elsewhere.
+    if (typeof input !== "string") throw new TypeError("Unsupported BodyInit type");
     const request = new Request(input, init);
     const url = new URL(request.url);
     const text = await request.text();
