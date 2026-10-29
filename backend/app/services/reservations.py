@@ -23,6 +23,8 @@ from app.models import (
 from app.schemas.reservation import ReservationCreate
 from app.services import hold_store
 from app.services.availability import ACTIVE_HOLD_STATUSES
+from app.services.payment_settlement import settle_reservation
+from app.services.payments import PaymentProvider
 
 logger = logging.getLogger(__name__)
 
@@ -257,12 +259,18 @@ async def list_reservations(
 
 
 async def cancel_reservation(
-    session: AsyncSession, redis: Redis, user: User, reservation_id: uuid.UUID
+    session: AsyncSession,
+    redis: Redis,
+    provider: PaymentProvider,
+    user: User,
+    reservation_id: uuid.UUID,
 ) -> None:
-    """Cancel a held reservation and release its stock. Idempotent.
+    """Cancel a held or paid reservation, release its stock and void any
+    payment. Idempotent.
 
     Postgres is updated first, then Redis: if the Redis release fails, the hold
-    keeps the unit locked only until its expiry (safe), never the reverse.
+    keeps the unit locked only until its expiry (safe), never the reverse. The
+    void is attempted immediately and retried by settlement if it fails.
     """
     reservation = await session.scalar(
         select(Reservation)
@@ -274,9 +282,10 @@ async def cancel_reservation(
     if reservation.status is ReservationStatus.CANCELLED:
         return
     status = effective_status(reservation)
-    if status is not ReservationStatus.HELD:
+    if status not in ACTIVE_HOLD_STATUSES:
         raise ReservationNotCancellableError(status)
     reservation.status = ReservationStatus.CANCELLED
     slot_id = reservation.slot_id
     await session.commit()
     await _release_quietly(redis, slot_id, reservation_id)
+    await settle_reservation(session, provider, reservation_id)

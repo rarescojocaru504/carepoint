@@ -14,6 +14,8 @@ from app.core.config import get_settings
 from app.core.db import AsyncSessionLocal
 from app.core.redis import redis_client
 from app.services.hold_reconciliation import reconcile_all
+from app.services.payment_settlement import settle_pending
+from app.services.payments import get_payment_provider
 from app.services.reservation_expiry import expire_due_reservations
 
 logger = logging.getLogger(__name__)
@@ -22,6 +24,9 @@ logger = logging.getLogger(__name__)
 async def _sweep_once() -> None:
     async with AsyncSessionLocal() as session:
         await expire_due_reservations(session, redis_client)
+        # Void payments of what just expired, and retry anything a provider
+        # outage left unsettled (ADR-015).
+        await settle_pending(session, get_payment_provider())
 
 
 async def _reconcile_once() -> None:

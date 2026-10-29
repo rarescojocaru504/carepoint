@@ -5,8 +5,23 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from app.api.deps import CurrentUser, DbSession, RedisClient, enforce_rate_limit
 from app.core.config import get_settings
-from app.schemas.reservation import ReservationCreate, ReservationRead
+from app.schemas.reservation import (
+    CheckoutRequest,
+    CheckoutResponse,
+    ReservationCreate,
+    ReservationRead,
+)
+from app.services import checkout as checkout_service
+from app.services import orders as order_service
 from app.services import reservations as service
+from app.services.payments import (
+    PaymentDeclinedError,
+    PaymentProvider,
+    PaymentProviderUnavailableError,
+    get_payment_provider,
+)
+
+Provider = Annotated[PaymentProvider, Depends(get_payment_provider)]
 
 router = APIRouter(
     prefix="/reservations",
@@ -121,11 +136,16 @@ async def get_one(
     },
 )
 async def cancel(
-    reservation_id: uuid.UUID, user: CurrentUser, session: DbSession, redis: RedisClient
+    reservation_id: uuid.UUID,
+    user: CurrentUser,
+    session: DbSession,
+    redis: RedisClient,
+    provider: Provider,
 ) -> None:
-    """Cancel a held reservation and release its stock. Idempotent."""
+    """Cancel a held or paid reservation: stock is released and any payment voided.
+    Idempotent."""
     try:
-        await service.cancel_reservation(session, redis, user, reservation_id)
+        await service.cancel_reservation(session, redis, provider, user, reservation_id)
     except service.ReservationNotFoundError:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Reservation not found") from None
     except service.ReservationNotCancellableError as exc:
@@ -133,3 +153,61 @@ async def cancel(
             status.HTTP_409_CONFLICT,
             {"code": "not_cancellable", "message": str(exc), "status": exc.status.value},
         ) from None
+
+
+async def _limit_checkout(user: CurrentUser, redis: RedisClient) -> None:
+    await enforce_rate_limit(
+        redis, "checkout-user", str(user.id), get_settings().rate_limit_checkout_user
+    )
+
+
+@router.post(
+    "/{reservation_id}/checkout",
+    response_model=CheckoutResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(_limit_checkout)],
+    responses={
+        200: {"description": "Already paid: the existing order"},
+        402: {"description": "Payment declined; the hold is kept, retry with another method"},
+        404: {"description": "Not found (or not yours)"},
+        409: {"description": "Reservation is not payable (expired, cancelled, dispensed)"},
+        503: {"description": "Payment provider unavailable; retry"},
+    },
+)
+async def checkout(
+    reservation_id: uuid.UUID,
+    data: CheckoutRequest,
+    user: CurrentUser,
+    session: DbSession,
+    provider: Provider,
+    response: Response,
+) -> CheckoutResponse:
+    """Pay for a held reservation: the payment is authorized now, captured when
+    the machine dispenses, and voided if the hold expires or is cancelled."""
+    try:
+        result = await checkout_service.checkout(
+            session, provider, user, reservation_id, data.payment_method
+        )
+    except service.ReservationNotFoundError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Reservation not found") from None
+    except checkout_service.ReservationNotPayableError as exc:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {"code": "not_payable", "message": str(exc), "status": exc.status.value},
+        ) from None
+    except PaymentDeclinedError as exc:
+        raise HTTPException(
+            status.HTTP_402_PAYMENT_REQUIRED, {"code": "payment_declined", "message": str(exc)}
+        ) from None
+    except PaymentProviderUnavailableError:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            {"code": "payment_unavailable", "message": "Payment provider unavailable, retry"},
+        ) from None
+    if not result.created:
+        response.status_code = status.HTTP_200_OK
+    view = await service.get_reservation(session, user, reservation_id)
+    return CheckoutResponse(
+        reservation=_out(view),
+        order=await order_service.order_for_reservation(session, reservation_id),
+    )

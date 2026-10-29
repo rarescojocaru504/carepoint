@@ -125,9 +125,9 @@ Rules for working through the roadmap:
 - **Done when:** the race tests pass reliably over many repeated runs, and the lock design is documented as an ADR.
 
 ### Phase 5 — Checkout & pickup codes
-- [ ] A mock payment provider behind an interface: authorise when the hold is placed, capture when the item is dispensed, void when the hold expires or is cancelled.
+- [x] A mock payment provider behind an interface: authorise at checkout (`POST /api/v1/reservations/{id}/checkout`, held → paid), capture when the item is dispensed, void when the hold expires or is cancelled. A settlement job retries until payment matches the reservation (ADR-015, #14).
 - [ ] Pickup credential: a single-use 6-digit code plus a QR payload. It is bound to one machine and one reservation and is valid only while the hold is active. Only its hash is stored.
-- [ ] Order history: `GET /api/v1/orders`.
+- [x] Order history: `GET /api/v1/orders` and `GET /api/v1/orders/{id}` (#14).
 - **Done when:** every state transition is tested (`held` → `paid` → `dispensed` | `expired` | `cancelled`) and illegal transitions are rejected.
 
 ### Phase 6 — Machine gateway (IoT)

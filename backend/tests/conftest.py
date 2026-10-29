@@ -19,6 +19,7 @@ from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.redis import get_redis
 from app.main import app
+from app.services.payments import MockPaymentProvider, get_payment_provider
 from tests.helpers import alembic_config
 from tests.world import World
 
@@ -172,3 +173,12 @@ async def world(migrated_database_url: str, redis: Redis) -> AsyncIterator[World
         app.dependency_overrides.clear()
         await w.cleanup()
         await engine.dispose()
+
+
+@pytest.fixture
+def provider() -> Iterator[MockPaymentProvider]:
+    """A fresh mock payment provider, also injected into the app."""
+    mock = MockPaymentProvider()
+    app.dependency_overrides[get_payment_provider] = lambda: mock
+    yield mock
+    app.dependency_overrides.pop(get_payment_provider, None)

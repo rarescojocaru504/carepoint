@@ -12,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
     MachineSlot,
+    Order,
+    PaymentStatus,
     Reservation,
     ReservationStatus,
     StockMovement,
@@ -21,9 +23,17 @@ from app.services import dispensing, hold_store
 from app.services.hold_reconciliation import ReconcileReport, reconcile_all, reconcile_slot
 from app.services.hold_store import ExistingHold
 from app.services.inventory import InsufficientStockError, record_stock_movement
+from app.services.payments import MockPaymentProvider
 from app.services.reservation_expiry import expire_due_reservations
 from app.services.reservations import load_slot_state
-from tests.factories import make_machine, make_product, make_reservation, make_slot, make_user
+from tests.factories import (
+    make_machine,
+    make_order,
+    make_product,
+    make_reservation,
+    make_slot,
+    make_user,
+)
 from tests.world import World
 
 pytestmark = pytest.mark.integration
@@ -231,11 +241,14 @@ async def test_redis_wipe_and_full_reconcile(db_session: AsyncSession, redis: Re
 # --- dispensing ---------------------------------------------------------------------
 
 
-async def test_dispense_updates_ledger_and_redis(db_session: AsyncSession, redis: Redis) -> None:
+async def test_dispense_updates_ledger_redis_and_captures(
+    db_session: AsyncSession, redis: Redis, provider: MockPaymentProvider
+) -> None:
     slot = await _slot(db_session, quantity=5)
-    r = await _hold(db_session, redis, slot, quantity=2)
+    r = await _hold(db_session, redis, slot, quantity=2, status=ReservationStatus.PAID)
+    order = await make_order(db_session, reservation=r)
 
-    done = await dispensing.complete_dispense(db_session, redis, r.id)
+    done = await dispensing.complete_dispense(db_session, redis, provider, r.id)
 
     assert done.status is ReservationStatus.DISPENSED
     await db_session.refresh(slot)
@@ -247,22 +260,27 @@ async def test_dispense_updates_ledger_and_redis(db_session: AsyncSession, redis
     assert (movement.delta, movement.reason) == (-2, StockMovementReason.DISPENSE)
     snap = await hold_store.snapshot(redis, slot.id)
     assert (snap.physical, snap.held, snap.available) == (3, 0, 3)
+    await db_session.refresh(order)
+    assert order.payment_status is PaymentStatus.CAPTURED
+    assert order.payment_reference in provider.captured
     # Idempotent: a retried "dispensed" message changes nothing.
-    await dispensing.complete_dispense(db_session, redis, r.id)
+    await dispensing.complete_dispense(db_session, redis, provider, r.id)
     await db_session.refresh(slot)
     assert slot.quantity == 3
 
 
 @pytest.mark.parametrize(
     ("status", "expires_in", "reported"),
-    [(ReservationStatus.HELD, timedelta(seconds=-1), ReservationStatus.EXPIRED),
+    [(ReservationStatus.PAID, timedelta(seconds=-1), ReservationStatus.EXPIRED),
      (ReservationStatus.EXPIRED, timedelta(seconds=-60), ReservationStatus.EXPIRED),
-     (ReservationStatus.CANCELLED, timedelta(minutes=5), ReservationStatus.CANCELLED)],
-    ids=["lapsed", "expired", "cancelled"],
+     (ReservationStatus.CANCELLED, timedelta(minutes=5), ReservationStatus.CANCELLED),
+     (ReservationStatus.HELD, timedelta(minutes=5), ReservationStatus.HELD)],
+    ids=["lapsed", "expired", "cancelled", "unpaid"],
 )  # fmt: skip
 async def test_dispense_refused_for_inactive_reservations(
     db_session: AsyncSession,
     redis: Redis,
+    provider: MockPaymentProvider,
     status: ReservationStatus,
     expires_in: timedelta,
     reported: ReservationStatus,
@@ -273,23 +291,23 @@ async def test_dispense_refused_for_inactive_reservations(
         db_session, user=user, slot=slot, status=status, expires_in=expires_in
     )
     with pytest.raises(dispensing.ReservationNotDispensableError) as info:
-        await dispensing.complete_dispense(db_session, redis, r.id)
+        await dispensing.complete_dispense(db_session, redis, provider, r.id)
     assert info.value.status is reported
     await db_session.refresh(slot)
     assert slot.quantity == 5
 
 
 async def test_dispense_refused_when_ledger_disagrees(
-    db_session: AsyncSession, redis: Redis
+    db_session: AsyncSession, redis: Redis, provider: MockPaymentProvider
 ) -> None:
     """The ledger is the final guard: no dispensing of stock that is not there."""
     slot = await _slot(db_session, quantity=1)
-    r = await _hold(db_session, redis, slot)
+    r = await _hold(db_session, redis, slot, status=ReservationStatus.PAID)
     await db_session.execute(
         update(MachineSlot).where(MachineSlot.id == slot.id).values(quantity=0)
     )
     with pytest.raises(InsufficientStockError):
-        await dispensing.complete_dispense(db_session, redis, r.id)
+        await dispensing.complete_dispense(db_session, redis, provider, r.id)
 
 
 # --- races: dispense vs expiry, on real concurrent connections ----------------------
@@ -301,9 +319,13 @@ async def _world_reservation(
     (user,) = await world.users(1)
     r = Reservation(
         user_id=user.id, slot_id=slot.id, quantity=1, unit_price_cents=500,
-        status=ReservationStatus.HELD, expires_at=datetime.now(UTC) + expires_in,
+        status=ReservationStatus.PAID, expires_at=datetime.now(UTC) + expires_in,
     )  # fmt: skip
     await world.add(r)
+    await world.add(
+        Order(reservation_id=r.id, user_id=user.id, amount_cents=500, currency="RON",
+              payment_status=PaymentStatus.AUTHORIZED, payment_reference=f"mock_{r.id.hex}")
+    )  # fmt: skip
     async with world.sessions() as session:
         await hold_store.reserve(
             redis, slot.id, r.id, 1, 900, lambda sid: load_slot_state(session, sid)
@@ -338,7 +360,7 @@ async def test_dispense_in_flight_survives_expiry(
 
     async def dispense() -> None:
         async with world.sessions() as session:
-            await dispensing.complete_dispense(session, redis, r.id)
+            await dispensing.complete_dispense(session, redis, MockPaymentProvider(), r.id)
 
     task = asyncio.create_task(dispense())
     await asyncio.sleep(1.5)  # now past expires_at, row still locked by the dispense
@@ -357,7 +379,7 @@ async def test_expiry_first_refuses_dispense(world: World, redis: Redis) -> None
         assert r.id in await expire_due_reservations(session, redis)
     async with world.sessions() as session:
         with pytest.raises(dispensing.ReservationNotDispensableError):
-            await dispensing.complete_dispense(session, redis, r.id)
+            await dispensing.complete_dispense(session, redis, MockPaymentProvider(), r.id)
     assert await _status_and_stock(world, r) == (ReservationStatus.EXPIRED, 3)
 
 
@@ -374,7 +396,7 @@ async def test_concurrent_dispenses_and_sweeps(world: World, redis: Redis, round
     async def dispense(r: Reservation) -> str:
         async with world.sessions() as session:
             try:
-                await dispensing.complete_dispense(session, redis, r.id)
+                await dispensing.complete_dispense(session, redis, MockPaymentProvider(), r.id)
                 return "dispensed"
             except dispensing.ReservationNotDispensableError:
                 return "refused"
