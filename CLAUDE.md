@@ -41,6 +41,7 @@ Your goal is to build a scalable, production-ready system utilizing FastAPI, Pos
 ├── dashboard/             # Operator dashboard (React + TypeScript, Vite)
 ├── loadtest/              # Reservation race/load tests (Locust or k6)
 ├── docs/                  # ADRs, protocol spec, guides, pitch kit
+├── documentation/         # Handover docs: project summary, CODE.md, WORKFLOW.md, handover prompt
 └── docker-compose.yml     # Local dev orchestration
 ```
 
@@ -69,6 +70,7 @@ Your goal is to build a scalable, production-ready system utilizing FastAPI, Pos
 
 ## 📝 Memory & Documentation
 Whenever you make a significant architectural decision (e.g., how the Redis lock is structured, how the IoT machine authenticates), document it immediately in `docs/architecture-decisions.md`.
+For orientation, read `documentation/` first: `PROJECT_SUMMARY.md` (what each phase built and the plan for the rest), `CODE.md` (map of the code) and `WORKFLOW.md` (how to run, test and ship). Keep them up to date when the structure changes.
 ## 🗺️ MVP Roadmap
 
 **MVP user story:** *A user opens the app and sees nearby CarePoint machines on a map with live stock. They reserve an item, which holds it for 15 minutes, and pay with a mock payment. At the machine they enter or scan a one-time pickup code, and the machine dispenses the item. If they don't arrive in time, the hold expires, the stock returns to the machine and the payment is voided.*
