@@ -60,6 +60,7 @@ backend/
 │   │   ├── deps.py        shared dependencies: DbSession, RedisClient, CurrentUser,
 │   │   │                  require_role(...), rate_limit_by_ip(...)
 │   │   ├── health.py      GET /health, GET /ready
+│   │   ├── sse.py         shared server-sent-event streaming (operator and customer streams)
 │   │   └── v1/            one module per area (thin handlers; logic is in services/)
 │   ├── core/              config.py (Settings), db.py (engine, sessions), redis.py, security.py (JWT, argon2)
 │   ├── models/            SQLAlchemy 2 typed models (Mapped[...]); enums.py
@@ -86,6 +87,7 @@ Settings are read from environment variables; the names are the field names in u
 | `REFRESH_TOKEN_TTL_SECONDS` | 30 days | |
 | `RESERVATION_HOLD_SECONDS` | 900 | set about 60 to demo an expiry live |
 | `MAX_ACTIVE_RESERVATIONS_PER_USER` | 3 | |
+| `CUSTOMER_EVENT_STREAMS_PER_USER` | 3 | open `GET /api/v1/events` streams per user (ADR-026) |
 | `MACHINE_ONLINE_WINDOW_SECONDS` | 90 | how long since the last message before a machine counts as offline |
 | `MACHINE_HEARTBEAT_INTERVAL_SECONDS` | 30 | sent to machines in `welcome` |
 | `DISPENSE_TIMEOUT_SECONDS` | 120 | how far an accepted pickup extends the hold |
@@ -142,7 +144,7 @@ Settings are read from environment variables; the names are the field names in u
 | | `inventory.py` | ledger writes: `record_stock_movement` |
 | **Operators** | `admin.py` | operator queries and actions: machines, slots, stock changes (also sent as `adjust_stock`), reservations, products |
 | | `kpis.py` | KPI summary, computed from the tables on each request |
-| | `events.py` | `publish()` of change notices to Redis channel `cp:events` (ADR-022) |
+| | `events.py` | `publish()` of change notices to `cp:events` (ADR-022); `publish_reservation()` also tells the owner on `cp:user-events:<user id>`; `customer_view()` filters what customers see; the per-user stream counter (ADR-026) |
 | **Demo** | `seeding.py`, `demo_data.py` | the idempotent demo dataset: 6 Bucharest machines, 12 products, 3 accounts |
 
 ### 2.5 HTTP API (all under `/api/v1` except health)
@@ -160,7 +162,8 @@ The live interactive docs are at **http://localhost:8000/docs** (Swagger) and th
 | Pickup code | `POST /reservations/{id}/pickup-code` (re-issue) | customer |
 | Orders | `GET /orders`, `GET /orders/{id}` | customer |
 | Operator | `GET /admin/machines`, `GET`/`PATCH /admin/machines/{id}`, `GET /admin/slots/{id}/movements`, `POST /admin/stock-movements`, `GET /admin/reservations`, `POST /admin/reservations/{id}/cancel`, `GET`/`POST /admin/products`, `PATCH`/`DELETE /admin/products/{id}`, `GET /admin/kpis` | operator, admin |
-| Operator live | `GET /admin/events` (server-sent events) | operator, admin |
+| Operator live | `GET /admin/events` (server-sent events, every notice) | operator, admin |
+| Customer live | `GET /events` (server-sent events: availability and machine status anywhere, own reservations only; at most 3 open per user) | any signed-in user |
 | Users | `GET /admin/users` | admin only |
 | Machine HTTP | `POST /machine/heartbeat` (signed) | machine |
 | Machine WS | `WS /ws/machines` (subprotocol `carepoint.v1`, signed handshake) | machine |

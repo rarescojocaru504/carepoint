@@ -25,7 +25,6 @@ from app.models import (
 from app.schemas.reservation import ReservationCreate
 from app.services import events, hold_store
 from app.services.availability import ACTIVE_HOLD_STATUSES
-from app.services.events import Topic
 from app.services.payment_settlement import settle_reservation
 from app.services.payments import PaymentProvider
 
@@ -230,7 +229,9 @@ async def create_reservation(
     view = ReservationView(
         reservation, slot.machine_id, product.sku, product.name, product.currency
     )
-    await events.publish(redis, Topic.RESERVATION, machine_id=slot.machine_id, change="created")
+    await events.publish_reservation(
+        redis, reservation, machine_id=slot.machine_id, change="created"
+    )
     return view, True
 
 
@@ -322,4 +323,4 @@ async def _cancel(
     await session.commit()
     await _release_quietly(redis, slot_id, reservation_id)
     await settle_reservation(session, provider, reservation_id)
-    await events.publish_for_slot(session, redis, Topic.RESERVATION, slot_id, change="cancelled")
+    await events.publish_reservation_for_slot(session, redis, reservation, change="cancelled")

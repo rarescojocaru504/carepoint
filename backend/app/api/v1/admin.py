@@ -81,14 +81,18 @@ async def get_machine(machine_id: uuid.UUID, session: DbSession) -> AdminMachine
     responses={404: {"description": "No such machine"}},
 )
 async def set_machine_status(
-    machine_id: uuid.UUID, data: MachineStatusUpdate, user: CurrentUser, session: DbSession
+    machine_id: uuid.UUID,
+    data: MachineStatusUpdate,
+    user: CurrentUser,
+    session: DbSession,
+    redis: RedisClient,
 ) -> AdminMachineDetail:
     """Put a machine into maintenance or back into service. Decommissioning
     (which also cuts off its live connection) is for admins only."""
     if data.status is MachineStatus.DECOMMISSIONED and user.role is not UserRole.ADMIN:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Only admins can decommission machines")
     try:
-        return await admin.set_machine_status(session, machine_id, data.status)
+        return await admin.set_machine_status(session, redis, machine_id, data.status)
     except admin.NotFoundError:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Machine not found") from None
 

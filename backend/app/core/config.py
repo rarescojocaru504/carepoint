@@ -65,6 +65,12 @@ class Settings(BaseSettings):
     # Wrong codes tolerated per machine per window before it must wait.
     rate_limit_pickup_failures_machine: RateLimitSpec = "20/60"
     rate_limit_pickup_rotate_user: RateLimitSpec = "5/60"
+
+    # --- customer live notices (ADR-026) --------------------------------------------
+    # Open GET /api/v1/events streams per user. Each holds a Redis connection, so
+    # one account can't open hundreds; 3 leaves room for a reconnect overlap.
+    customer_event_streams_per_user: int = Field(default=3, ge=1, le=20)
+
     # Background jobs (ADR-013). Disabled in the test suite, which drives them directly.
     background_workers_enabled: bool = True
     expiry_sweep_interval_seconds: int = Field(default=15, ge=1, le=600)

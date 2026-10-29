@@ -89,6 +89,6 @@ async def complete_dispense(
         logger.exception("Could not mirror dispense of %s in Redis", reservation_id)
     # The item is out: capture now, or settlement retries until it succeeds.
     await settle_reservation(session, provider, reservation_id)
-    for topic in (Topic.RESERVATION, Topic.STOCK):
-        await events.publish_for_slot(session, redis, topic, slot_id, change="dispensed")
+    await events.publish_reservation_for_slot(session, redis, reservation, change="dispensed")
+    await events.publish_for_slot(session, redis, Topic.STOCK, slot_id, change="dispensed")
     return reservation

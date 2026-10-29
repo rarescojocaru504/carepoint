@@ -838,6 +838,65 @@ The map pins and the list badges use the same colours. The machine screen shows 
 
 **Evidence.** 39 Jest tests in total. Beyond ADR-024's: formatting; the machine-state order; locating with permission granted, refused, or failing; the query parameters sent; keeping the last list on a failed reload; machine details and a 404; and screen tests with React Native Testing Library (v14, async): sign-in success, a wrong password shows the server's message, form checks before any request, the map list's states and navigation, the demo-area fallback, a connection error, and the machine screen's prices, counts, low-stock, sold-out and offline warning. Android and iOS bundles build with `npx expo export`.
 
+## ADR-026: Live notices for customers (2026-10-29)
+
+The app needs to see a hold, a payment, a pickup or an expiry the moment it happens, and live stock on the machine screen. Operators already get every change (ADR-022), but that stream shows all customers' reservations, so customers can't simply be given it.
+
+**The privacy rule.** A customer sees:
+- **stock for any machine**: *that* what can be reserved there changed, never why or for whom;
+- **machine status for any machine**: online, offline, or put into or out of maintenance;
+- **reservation notices only for their own reservations.**
+
+Everything a customer learns about other people is already public through the discovery API (ADR-011), which shows each machine's availability and online status; the notice only says when to re-read it.
+
+**Two kinds of channel** (`app/services/events.py`):
+- `cp:events`, as before: every notice, for operators. Its shape is unchanged, so the dashboard needed no change.
+- `cp:user-events:<user id>`, new: every reservation notice is **also** published to its owner's channel, with the reservation id. `publish_reservation()` does both, and every service that changes a reservation calls it: create, checkout, cancel (including an operator's cancel), dispensing, dispensed, partial, and the expiry sweeper (one notice per owner).
+
+**The stream:** `GET /api/v1/events`, server-sent events, open to any signed-in user.
+- Each stream subscribes to `cp:events` and to **its own user's channel only**, never a pattern. The user id comes from the verified token, not from anything the client sends.
+- Shared-channel notices pass through `customer_view()`, which keeps only what customers may see and rewrites it:
+
+  | Operator notice | Customer notice |
+  |---|---|
+  | `stock` / any change | `stock` / `availability` |
+  | `reservation` / `created`, `cancelled`, `expired` | `stock` / `availability` (anonymous) |
+  | `reservation` / `paid`, `dispensing`, `dispensed`, `partial` | dropped (dispensed and partial also arrive as stock notices) |
+  | `machine` / `connected`, `disconnected`, `status` | `machine` / `online`, `offline`, `status` |
+  | `machine` / `telemetry`, `fault` | dropped |
+
+- Own-channel notices are validated before they are passed on, and malformed messages are dropped.
+- Every event's data is a `CustomerNotice` (`topic`, `machine_id`, `reservation_id`, `change`, `at`). It is declared on the route, so it is in the OpenAPI schema and the app gets its type generated. Like the operator notices, it says *what* changed and the app re-reads it through the normal API (`GET /reservations/{id}`, `GET /machines/{id}`), so access control stays in one place.
+- **Maintenance is announced.** Putting a machine into or out of maintenance (`PATCH /admin/machines/{id}`) now publishes `machine` / `status`; before, nothing was published.
+
+**Limits.** Each open stream holds a Redis connection. One account may hold at most `CUSTOMER_EVENT_STREAMS_PER_USER` (3) open streams; a fourth gets 429.
+- The count is a Redis counter, incremented and checked in one Lua script and decremented when the stream ends.
+- It has a TTL longer than any stream can last, because streams end at token expiry. A worker that dies without decrementing can't lock a user out for long.
+
+**Shared stream code** (`app/api/sse.py`). Both streams now use one implementation: short-lived authorisation, ending at token expiry, keep-alives and no-buffering headers, as ADR-022 describes.
+
+**Found on the way: stream cleanup never ran on disconnect.** When a client goes away, Starlette cancels the streaming generator through an anyio cancel scope, and anyio cancellation fires again at *every* await inside it. The `finally` that closed the Redis subscription therefore stopped at its first await, so a closed stream's place was never given back (the test caught it). The operator stream had the same latent problem with its pub/sub connection. The cleanup now runs in a shielded cancel scope.
+
+**Evidence:**
+- **Over a real server:**
+  - anonymous and forged-token callers get 401;
+  - customers and operators can listen;
+  - Alice reserves, pays and cancels: she sees `created`, `paid` and `cancelled` with her reservation id, plus availability. Bob, listening at the same time, sees availability for that machine and **no reservation notice at all**, and none of his notices carries a reservation id;
+  - a machine's connect and disconnect arrive as online and offline, and telemetry doesn't arrive;
+  - maintenance arrives as `status`;
+  - an expiry reaches its owner with the reservation id, and others only as availability;
+  - the per-user limit is 429 at the limit, doesn't apply across users, and frees its places when streams close;
+  - a stream ends at token expiry and frees its place.
+- **Publishers:**
+  - a reservation's life reaches its owner in order (`created`, `paid`, `cancelled`; `created`, `expired`);
+  - a pickup at a fake machine reaches its owner as `dispensing` then `dispensed`;
+  - publishing with Redis down doesn't raise.
+- **Filter:** a table test of all 14 operator notice kinds, and malformed input dropped.
+- **Mutation-checked:**
+  - forwarding operator notices unfiltered fails 3 tests;
+  - subscribing to every user's channel fails the privacy tests;
+  - removing the shield fails the limit test.
+
 ## ADR-027: Reserve, pay and pick up in the app (2026-10-29)
 
 **The flow:**
