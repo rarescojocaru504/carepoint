@@ -316,3 +316,54 @@ Every operation is **one Lua script**, so Redis runs it atomically. Each script 
 3. **Worker processes** can now be set through `WEB_CONCURRENCY` (read by Uvicorn; Compose default 1). The background jobs are already safe across processes (ADR-013).
 4. **Campus NAT.** The discovery limit per IP went from 300/min to **1,200/min**, because hundreds of students on campus Wi-Fi share one public IP and 300/min covers only about 60–100 app opens per minute for the whole network. The long-term answer is per-device or per-account limits once the mobile app sends a device identity (Phase 9).
 5. **Measuring the tool, not the system.** A single httpx event loop maxed out one core while the server sat idle. `top` caught it, and that's why `race.py` spreads the burst over several aiohttp client processes. Lesson: check where the CPU goes before you believe a latency number.
+
+## ADR-015: Checkout, mock payments and settlement (2026-10-29)
+
+**Reservation states:**
+```
+held ──checkout──▶ paid ──dispense──▶ dispensed
+  │                 │
+  ├─cancel─▶ cancelled ◀─cancel─┤
+  └─expiry─▶ expired  ◀─expiry─┘
+```
+- **Only `paid` reservations can be dispensed.** Every other combination is refused, and `test_state_machine` covers all 17 combinations of state and action.
+- **Repeats are harmless:** paying again, dispensing again and cancelling again are all idempotent.
+
+**Money for one reservation:**
+- **Checkout** *authorises* the amount, so it's reserved but not taken (`POST /reservations/{id}/checkout`).
+- **Dispense** *captures* it, so the money is taken.
+- **Expiry or cancellation** *voids* it, so the money is released.
+
+This is the standard "authorise now, capture on fulfilment" flow. A customer whose hold lapses is never charged.
+
+**Provider interface.** `PaymentProvider` (`app/services/payments.py`) has three methods: `authorize`, `capture` and `void`. The MVP's `MockPaymentProvider` moves no money and behaves according to test tokens, as real providers' test cards do:
+
+| Token | Behaviour |
+|---|---|
+| `pm_card_ok` | succeeds |
+| `pm_card_declined` | returns `402 payment_declined` |
+| `pm_card_provider_error` | returns `503 payment_unavailable` (simulated outage) |
+
+A real provider, such as Stripe PaymentIntents with manual capture, slots in behind the same interface.
+- **Only tokens are accepted.** Checkout takes a provider payment-method token matching `^pm_[a-z0-9_]{2,60}$`, never a raw card number; a card number fails validation with 422.
+- **Retries are safe.** The provider idempotency key is `checkout:<reservation id>`. If the process dies between authorising and committing, a retry gets the **same** authorisation instead of a second one.
+
+**Checkout is race-free.** The reservation row is locked while checkout runs:
+- a double-tapped "pay" button creates exactly one order: one request gets 201 and the others get 200 with the same order;
+- the expiry sweeper skips the locked row;
+- validity is judged once the lock is held.
+
+A decline or outage happens **before anything is written**. The reservation stays `held` and the customer can retry until it expires.
+
+**Settlement: payment follows the reservation.** The physical world doesn't wait for a payment provider. Once a machine reports "dispensed", the item is in the customer's hand; once a hold expires, the unit is back on sale. So the reservation's status is decided first, and the payment is settled to match it (`app/services/payment_settlement.py`):
+- a reservation that's `dispensed` gets its payment **captured**; one that's `expired` or `cancelled` gets it **voided**;
+- cancel and dispense try to settle immediately;
+- the background loop runs `settle_pending` after every expiry sweep and **retries until payment and reservation agree**, for example after a provider outage;
+- each order is locked with `SKIP LOCKED`, so two workers never settle the same order;
+- one failing order doesn't block the others (tested and mutation-checked);
+- provider capture and void are idempotent, so retrying after an ambiguous failure is always safe.
+
+**Other details:**
+- **Card-testing defence:** checkout attempts are rate-limited per user (`RATE_LIMIT_CHECKOUT_USER`, 10/min) against people testing stolen card numbers.
+- **Order history:** `GET /api/v1/orders` (newest first) and `GET /api/v1/orders/{id}` return the payment status and the reservation's effective status. Someone else's order returns 404.
+- **Known limitation:** if checkout authorises but then fails to commit and is never retried, the authorisation stays at the provider until it lapses there (real providers expire uncaptured authorisations after about 7 days). No money is taken.

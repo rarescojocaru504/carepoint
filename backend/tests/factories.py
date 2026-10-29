@@ -9,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import (
     Machine,
     MachineSlot,
+    Order,
+    PaymentStatus,
     Product,
     ProductCategory,
     Reservation,
@@ -106,3 +108,22 @@ async def make_reservation(
     session.add(reservation)
     await session.flush()
     return reservation
+
+
+async def make_order(
+    session: AsyncSession,
+    *,
+    reservation: Reservation,
+    status: PaymentStatus = PaymentStatus.AUTHORIZED,
+) -> Order:
+    order = Order(
+        reservation_id=reservation.id,
+        user_id=reservation.user_id,
+        amount_cents=reservation.unit_price_cents * reservation.quantity,
+        currency="RON",
+        payment_status=status,
+        payment_reference=f"mock_{reservation.id.hex}",
+    )
+    session.add(order)
+    await session.flush()
+    return order

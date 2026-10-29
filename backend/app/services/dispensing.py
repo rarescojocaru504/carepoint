@@ -19,6 +19,8 @@ from app.models import Reservation, ReservationStatus, StockMovementReason
 from app.services import hold_store
 from app.services.availability import ACTIVE_HOLD_STATUSES
 from app.services.inventory import record_stock_movement
+from app.services.payment_settlement import settle_reservation
+from app.services.payments import PaymentProvider
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +40,7 @@ class ReservationNotDispensableError(DispenseError):
 
 
 async def complete_dispense(
-    session: AsyncSession, redis: Redis, reservation_id: uuid.UUID
+    session: AsyncSession, redis: Redis, provider: PaymentProvider, reservation_id: uuid.UUID
 ) -> Reservation:
     """Record a dispensed reservation. Idempotent for an already-dispensed one.
 
@@ -55,11 +57,13 @@ async def complete_dispense(
         raise ReservationNotFoundError(str(reservation_id))
     if reservation.status is ReservationStatus.DISPENSED:
         return reservation
-    if reservation.status not in ACTIVE_HOLD_STATUSES or reservation.expires_at <= datetime.now(
+    # Only paid reservations are dispensed (ADR-015). A held-but-unpaid one,
+    # or one past its expiry, is refused.
+    if reservation.status is not ReservationStatus.PAID or reservation.expires_at <= datetime.now(
         UTC
     ):
         status = reservation.status
-        if status in ACTIVE_HOLD_STATUSES:
+        if status in ACTIVE_HOLD_STATUSES and reservation.expires_at <= datetime.now(UTC):
             status = ReservationStatus.EXPIRED
         raise ReservationNotDispensableError(status)
 
@@ -82,4 +86,6 @@ async def complete_dispense(
         # until reconciliation (ADR-013). The ledger refuses a dispense that
         # would take stock below zero, so this cannot dispense phantom items.
         logger.exception("Could not mirror dispense of %s in Redis", reservation_id)
+    # The item is out: capture now, or settlement retries until it succeeds.
+    await settle_reservation(session, provider, reservation_id)
     return reservation

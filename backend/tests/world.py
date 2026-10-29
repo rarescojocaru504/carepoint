@@ -12,12 +12,13 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-from sqlalchemy import delete, text
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.models import (
     Machine,
     MachineSlot,
+    Order,
     Product,
     ProductCategory,
     RefreshToken,
@@ -83,6 +84,15 @@ class World:
             # rows these tests created; nothing else is touched.
             await session.execute(text("SET LOCAL session_replication_role = replica"))
             await session.execute(delete(StockMovement).where(StockMovement.slot_id.in_(slot_ids)))
+            await session.execute(
+                delete(Order).where(
+                    Order.reservation_id.in_(
+                        select(Reservation.id).where(
+                            Reservation.slot_id.in_(slot_ids) | Reservation.user_id.in_(user_ids)
+                        )
+                    )
+                )
+            )
             await session.execute(
                 delete(Reservation).where(
                     Reservation.slot_id.in_(slot_ids) | Reservation.user_id.in_(user_ids)
