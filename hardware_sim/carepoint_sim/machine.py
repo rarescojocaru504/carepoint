@@ -63,7 +63,6 @@ class SimulatedMachine:
         self._ids = itertools.count(1)
         self._send_lock = asyncio.Lock()
         self._mechanism = asyncio.Lock()  # one dispense at a time
-        self._delivering: set[str] = set()
         self._background: set[asyncio.Task[None]] = set()
         self._allowed_online = asyncio.Event()
         if not self.faults.offline:
@@ -298,11 +297,20 @@ class SimulatedMachine:
         self.faults = faults
         if faults.offline:
             self._allowed_online.clear()
-            if self._ws is not None:
-                self._spawn(self._ws.close())
+            self._spawn(self._hang_up())
         else:
             self._allowed_online.set()
         self._publish("faults")
+
+    async def _hang_up(self) -> None:
+        """Close the connection, but never wait on the server for long."""
+        ws = self._ws
+        if ws is None:
+            return
+        try:
+            await asyncio.wait_for(ws.close(), timeout=5)
+        except TimeoutError:
+            logger.warning("%s: close handshake timed out", self.serial)
 
     async def _quietly(self, action: Callable[[], Any]) -> None:
         with contextlib.suppress(NotConnectedError, TimeoutError):
@@ -321,8 +329,7 @@ class SimulatedMachine:
                     await self._dispense(command_id, command["slot"], command["quantity"])
                     if self.faults.drop_next_result:
                         self.faults.drop_next_result = False
-                        if self._ws is not None:
-                            await self._ws.close()  # the result stays in the outbox
+                        await self._hang_up()  # the result stays in the outbox
                         return
         await self._deliver(command_id)
 
@@ -370,20 +377,19 @@ class SimulatedMachine:
             await self._deliver(command_id)
 
     async def _deliver(self, command_id: str) -> None:
-        """Send a stored result; forget it once acknowledged (§6 rule 2)."""
-        if command_id in self._delivering:
-            return
-        self._delivering.add(command_id)
+        """Send a stored result; forget it once acknowledged (§6 rule 2).
+
+        Every call sends, even if another send of the same result is still
+        waiting for its ack: a resent `dispense` must always be answered, and
+        the server ignores duplicates."""
+        result = self.state.executed[command_id]
+        payload = {"type": "dispense_result", "command_id": command_id, **result}
+        if payload["error_code"] is None:
+            del payload["error_code"]
         try:
-            result = self.state.executed[command_id]
-            payload = {"type": "dispense_result", "command_id": command_id, **result}
-            if payload["error_code"] is None:
-                del payload["error_code"]
             reply = await self._request(payload)
         except (NotConnectedError, TimeoutError):
             return  # stays in the outbox for the next connection
-        finally:
-            self._delivering.discard(command_id)
         if reply.get("type") == "ack" or reply.get("code") == "unknown_command":
             if command_id in self.state.outbox:
                 self.state.outbox.remove(command_id)

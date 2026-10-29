@@ -21,3 +21,5 @@ plugins = ["pydantic.mypy"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+# A hung test fails with a stack dump instead of stalling CI.
+timeout = 60

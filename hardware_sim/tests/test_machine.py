@@ -109,6 +109,31 @@ async def test_a_command_is_executed_at_most_once(gateway: Gateway, start: Start
     assert results[0] | {"id": None} == results[1] | {"id": None}
 
 
+async def test_resend_is_answered_even_while_the_first_answer_awaits_its_ack(
+    gateway: Gateway, start: Start
+) -> None:
+    """Regression: a resent command arriving before the first result was
+    acknowledged used to be dropped, leaving the server without an answer."""
+    fake, _ = gateway
+    machine = await start()
+    await fake.wait_for("heartbeat")
+
+    def hold_back_result_acks(message: dict[str, Any]) -> dict[str, Any] | None:
+        if message["type"] == "dispense_result":
+            return None
+        return {"type": "ack", "reply_to": message["id"]}
+
+    fake.reply = hold_back_result_acks
+
+    await fake.push(_dispense())
+    await fake.wait_for("dispense_result")  # sent, not acknowledged
+    await fake.push(_dispense())  # the server resends
+
+    results = await fake.wait_for("dispense_result", count=2)
+    assert results[0]["command_id"] == results[1]["command_id"] == "c-1"
+    assert machine.state.counts["A1"] == 4  # still dispensed only once
+
+
 async def test_unacknowledged_result_is_sent_first_after_reconnecting(
     gateway: Gateway, start: Start
 ) -> None:

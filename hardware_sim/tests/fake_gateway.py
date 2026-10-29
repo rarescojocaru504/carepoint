@@ -41,6 +41,7 @@ class FakeGateway:
         self.after_welcome: list[dict[str, Any]] = []
         self.reply: Reply = default_reply
         self.ws: web.WebSocketResponse | None = None
+        self._request: web.Request | None = None
 
     def app(self) -> web.Application:
         app = web.Application()
@@ -77,7 +78,7 @@ class FakeGateway:
         ws = web.WebSocketResponse(protocols=("carepoint.v1",))
         await ws.prepare(request)
         self.connections += 1
-        self.ws = ws
+        self.ws, self._request = ws, request
         await ws.send_json(
             {
                 "type": "welcome",
@@ -104,8 +105,9 @@ class FakeGateway:
         await self.ws.send_json(message)
 
     async def drop(self) -> None:
-        if self.ws is not None:
-            await self.ws.close()
+        """Lose the network: abort the TCP connection, no close handshake."""
+        if self._request is not None and self._request.transport is not None:
+            self._request.transport.close()
 
     def of_type(self, kind: str) -> list[dict[str, Any]]:
         return [m for m in self.received if m["type"] == kind]

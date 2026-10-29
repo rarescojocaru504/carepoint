@@ -19,6 +19,8 @@ env:
 jobs:
   lint:
     name: Lint & type check
+    # Fail fast instead of GitHub's 6-hour default if something hangs.
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -40,6 +42,7 @@ jobs:
 
   test:
     name: Tests (PostGIS + Redis)
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -91,6 +94,7 @@ jobs:
 
   simulator:
     name: Hardware simulator
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -114,6 +118,7 @@ jobs:
 
   docker:
     name: Docker Compose smoke test
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -155,6 +160,7 @@ jobs:
 
   automerge:
     name: Auto-merge
+    timeout-minutes: 5
     needs: [lint, test, simulator, docker]
     # Same-repo PRs only (never forks), not drafts, and not labelled do-not-merge.
     if: >-
