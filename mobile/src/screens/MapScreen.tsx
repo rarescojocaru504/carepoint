@@ -2,12 +2,14 @@ import { useEffect, useMemo } from "react";
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import MapView, { Marker } from "react-native-maps";
 
+import { ActiveReservations } from "../components/ActiveReservations";
 import { Banner, Button, Centered, colors, StateBadge } from "../components/ui";
 import { formatDistance } from "../format";
 import { machineState, STATE_COLOR } from "../machineState";
 import type { ScreenProps } from "../navigation";
 import { DEMO_CENTER, SEARCH_RADIUS_M, useMachines } from "../store/machines";
 import type { MachineSummary } from "../store/machines";
+import { useReservations } from "../store/reservations";
 
 // About 15 km across: the demo city at a glance.
 const REGION_DELTA = 0.15;
@@ -18,10 +20,12 @@ export function MapScreen({ navigation }: ScreenProps<"Map">) {
   const nearby = useMachines((s) => s.nearby);
   const locate = useMachines((s) => s.locate);
   const loadNearby = useMachines((s) => s.loadNearby);
+  const loadMine = useReservations((s) => s.loadMine);
 
   useEffect(() => {
     void locate();
-  }, [locate]);
+    void loadMine(); // shows any holds still running, e.g. after an app restart
+  }, [locate, loadMine]);
 
   const region = useMemo(
     () =>
@@ -75,6 +79,9 @@ export function MapScreen({ navigation }: ScreenProps<"Map">) {
         }
         ListHeaderComponent={
           <View style={styles.notices}>
+            <ActiveReservations
+              onOpen={(reservationId) => navigation.navigate("Reservation", { reservationId })}
+            />
             {nearby.status === "error" && <Banner tone="error">{nearby.error}</Banner>}
             {source === "demo" && (
               <Banner tone="info">

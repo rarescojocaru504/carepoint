@@ -175,10 +175,10 @@ Rules for working through the roadmap:
 - [x] Screens: login and register, a map of nearby machines (React Native Maps) and a machine details page with stock (ADR-025, #27).
 - [x] CI: `tsc --noEmit`, ESLint and Jest, plus a check that the generated API types are current (#26).
 
-### Phase 10 — Mobile reserve → pay → pickup flow
+### Phase 10 — Mobile reserve → pay → pickup flow ✅
 - [x] Reserve from the machine page, mock checkout, a reservation screen with a live 15-minute countdown and the pickup QR code and PIN, cancel, and order history (ADR-027, #29).
-- [ ] Live stock and reservation status pushed to the app over WebSocket or server-sent events, so a hold or expiry shows up straight away.
-- [ ] Handling for an expired hold, a machine going offline and the app losing connection.
+- [x] Live stock and reservation status pushed to the app over WebSocket or server-sent events, so a hold or expiry shows up straight away (ADR-026, ADR-028, #28, #30).
+- [x] Handling for an expired hold, a machine going offline and the app losing connection (ADR-028, #30).
 
 ### Phase 11 — MVP hardening, handover & pitch kit
 - [ ] An end-to-end test of the whole story in CI: API, simulator and kiosk (Playwright), driven through the same API calls the app makes.
