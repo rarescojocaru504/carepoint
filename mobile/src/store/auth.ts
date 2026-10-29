@@ -4,6 +4,7 @@ import { create } from "zustand";
 
 import * as client from "../services/api";
 import type { Me } from "../services/api";
+import { useReservations } from "./reservations";
 
 /** "unreachable": a session is stored but the server couldn't be asked about it. */
 export type AuthStatus = "restoring" | "unreachable" | "signedOut" | "signedIn";
@@ -52,6 +53,7 @@ export const useAuth = create<AuthState>()((set) => ({
 
   signOut: async () => {
     set({ status: "signedOut", user: null });
+    useReservations.getState().clear(); // pickup codes leave memory with the session
     await client.signOut();
   },
 }));
@@ -59,4 +61,5 @@ export const useAuth = create<AuthState>()((set) => ({
 // The server rejected the refresh token (expired, revoked or reused).
 client.onSessionEnded(() => {
   useAuth.setState({ status: "signedOut", user: null });
+  useReservations.getState().clear();
 });

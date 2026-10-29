@@ -1,9 +1,18 @@
 // react-native-maps is native; render the map and markers as plain views.
 jest.mock("react-native-maps", () => {
   const { View } = jest.requireActual<typeof import("react-native")>("react-native");
-  const MapView = (props: { children?: import("react").ReactNode }) => <View testID="map">{props.children}</View>;
+  const MapView = (props: { children?: import("react").ReactNode }) => (
+    <View testID="map">{props.children}</View>
+  );
   const Marker = (props: { title?: string }) => <View testID={`marker:${props.title ?? ""}`} />;
   return { __esModule: true, default: MapView, Marker };
+});
+
+// The QR code draws with react-native-svg; tests only need to know what it encodes.
+jest.mock("react-native-qrcode-svg", () => {
+  const { View } = jest.requireActual<typeof import("react-native")>("react-native");
+  const QRCode = (props: { value: string }) => <View testID={`qr:${props.value}`} />;
+  return { __esModule: true, default: QRCode };
 });
 
 // expo-secure-store is native; tests use an in-memory stand-in.

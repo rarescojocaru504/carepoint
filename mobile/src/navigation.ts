@@ -5,6 +5,8 @@ export type RootStackParamList = {
   SignIn: undefined;
   Map: undefined;
   Machine: { machineId: string; name: string };
+  Reservation: { reservationId: string };
+  Orders: undefined;
 };
 
 export type ScreenProps<Name extends keyof RootStackParamList> = NativeStackScreenProps<

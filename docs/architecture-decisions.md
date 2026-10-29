@@ -896,3 +896,46 @@ Everything a customer learns about other people is already public through the di
   - forwarding operator notices unfiltered fails 3 tests;
   - subscribing to every user's channel fails the privacy tests;
   - removing the shield fails the limit test.
+
+## ADR-027: Reserve, pay and pick up in the app (2026-10-29)
+
+**The flow:**
+1. **Reserve.** On a machine's screen every stocked slot has a **Reserve** button, enabled only while the machine is open (active and online). Each tap sends a fresh `idempotency_key`, so a retried request can't create a second hold (ADR-012). The app then opens the reservation.
+2. **Pay** (status `held`). A countdown, then **Pay** with the mock test card (`pm_card_ok`, ADR-015). A small "Demo: try a declined card" link sends `pm_card_declined`, so a presenter can show a decline: the reservation stays held and can still be paid.
+3. **Pick up** (status `paid`). The countdown, a **QR code** of `qr_payload` (`react-native-qrcode-svg`) and the **6-digit code** in large type, for the kiosk camera or keypad.
+4. **Afterwards.** *Picked up*, *Cancelled* or *Expired*, each saying whether the customer was charged. An expired hold offers **Reserve again**, which goes back to the machine.
+5. **Cancel** while held or paid, after a confirmation.
+6. **My orders.** The customer's active reservations, then their order history, with what happened to each payment (charged, not charged, authorised). Each opens its reservation.
+
+**The pickup code never touches storage.**
+- The checkout response's code lives only in the `reservations` store's memory: not SecureStore, not AsyncStorage, not logs.
+- It is dropped when its reservation stops being active and at sign-out, including when the server ends the session.
+- The server keeps only a peppered hash and shows a code once (ADR-016). So after an app restart the paid screen offers **Show my pickup code**, which calls `POST /reservations/{id}/pickup-code` and warns that any earlier code stops working.
+- A test checks that paying never calls SecureStore.
+
+**The countdown uses the server's clock** (`src/services/clock.ts`).
+- Every API response's `Date` header updates an offset between the phone's clock and the server's, and countdowns use server time.
+- A phone whose clock is wrong would otherwise show the wrong time left, and a hold ends at the server's `expires_at`. The header's one-second resolution is enough for a countdown.
+- When the countdown reaches zero, the app re-reads the reservation. The server already reports a lapsed hold as `expired` (ADR-012), before the sweeper records it, so the screen changes at once. Live notices (ADR-026, Phase 10-C) will catch changes made elsewhere: a pickup at the machine, or an operator's cancel.
+
+**Errors in the customer's words** (`src/messages.ts`). The API's stable codes map to sentences:
+- `insufficient_stock`: "Sorry, someone just reserved the last one", and the machine's stock is re-read;
+- `too_many_active`;
+- `payment_declined`;
+- `payment_unavailable`;
+- `not_payable`;
+- `not_cancellable`;
+- `pickup_in_progress`.
+
+Anything else shows the server's own message.
+
+**Evidence:**
+- **65 Jest tests.** The new ones cover:
+  - the server clock and countdown format;
+  - the store: idempotency keys valid and distinct; the code kept in memory and never written to SecureStore; a decline leaves the reservation held with no code; a repeated checkout without a code; re-issuing; codes forgotten when a reservation ends and at sign-out; cancel then re-read; `pickup_in_progress`; lists that keep the last data on failure;
+  - the screens: pay shows the QR, the code and the countdown; a decline is explained and the reservation stays payable; a code is re-issued when it's not in memory; cancel after confirmation; the countdown reaching zero turns into "expired", and "Reserve again" goes to the machine; Reserve from a slot opens the reservation; sold-out slots have no button; an offline machine's buttons are disabled; "someone just reserved the last one"; My orders shows active and past orders with their payment status.
+- **A one-off run against the Compose stack,** using the app's real stores through a Node HTTP adapter with Expo's fetch contract:
+  - the demo customer reserved a pack of pads at CP-BUC-0001 and paid, and got code 287875;
+  - the code was typed into that machine's kiosk API, and the simulated machine dispensed;
+  - the app then read `dispensed`, the order showed 12.99 RON **captured**, and the code was gone from memory.
+- **Builds:** the Android and iOS bundles build.

@@ -13,8 +13,10 @@
     "react": "19.3.0",
     "react-native": "0.88.1",
     "react-native-maps": "1.29.11",
+    "react-native-qrcode-svg": "^6.3.47",
     "react-native-safe-area-context": "~5.10.1",
     "react-native-screens": "~4.30.0",
+    "react-native-svg": "15.16.0",
     "zustand": "^5.0.16"
   },
   "devDependencies": {
