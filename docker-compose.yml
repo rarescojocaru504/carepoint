@@ -45,8 +45,13 @@ services:
     # --ws websockets: fail at startup if the WebSocket library is missing instead
     # of silently serving without the machine gateway; --ws-max-size caps a frame
     # before it is buffered (the gateway itself allows 16 KiB, ADR-017).
+    # DEMO_INIT=1 (the default here): seed the demo data and issue the demo
+    # machines' keys for the hardware simulator before serving (ADR-019).
     command: >-
       sh -c "alembic upgrade head &&
+             if [ \"$${DEMO_INIT}\" = 1 ]; then
+               python -m app.scripts.demo_init --keys-dir /var/lib/carepoint/machine-keys;
+             fi &&
              exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --timeout-keep-alive 75
              --ws websockets --ws-max-size 65536"
     environment:
@@ -54,6 +59,9 @@ services:
       TEST_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-carepoint}:${POSTGRES_PASSWORD:-carepoint}@db:5432/${POSTGRES_DB:-carepoint}_test
       REDIS_URL: redis://redis:6379/0
       WEB_CONCURRENCY: ${WEB_CONCURRENCY:-1}
+      DEMO_INIT: ${DEMO_INIT:-1}
+    volumes:
+      - machine_keys:/var/lib/carepoint/machine-keys
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready', timeout=3)"]
       interval: 10s
@@ -68,6 +76,32 @@ services:
       redis:
         condition: service_healthy
 
+  # Plays the six demo machines against the backend and serves their kiosk
+  # screens on http://localhost:8080 (docs/machine-protocol.md, ADR-019).
+  simulator:
+    build:
+      context: ./hardware_sim
+    restart: unless-stopped
+    environment:
+      SIM_BACKEND_URL: ws://backend:8000
+      SIM_HTTP_HOST: 0.0.0.0
+    volumes:
+      - machine_keys:/var/lib/carepoint/machine-keys:ro
+      - simulator_state:/var/lib/carepoint-sim/state
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/machines', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
+    ports:
+      - "8080:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+
 volumes:
   postgres_data:
   redis_data:
+  machine_keys:
+  simulator_state:

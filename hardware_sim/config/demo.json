@@ -1,0 +1,16 @@
+{
+  "backend_url": "ws://localhost:8000",
+  "keys_dir": "/var/lib/carepoint/machine-keys",
+  "state_dir": "/var/lib/carepoint-sim/state",
+  "http_host": "127.0.0.1",
+  "http_port": 8080,
+  "kiosk_dir": "/app/kiosk",
+  "machines": [
+    {"serial": "CP-BUC-0001"},
+    {"serial": "CP-BUC-0002"},
+    {"serial": "CP-BUC-0003"},
+    {"serial": "CP-BUC-0004"},
+    {"serial": "CP-BUC-0005", "faults": {"seconds_per_unit": 4}},
+    {"serial": "CP-BUC-0006"}
+  ]
+}

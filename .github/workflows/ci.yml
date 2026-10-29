@@ -19,6 +19,8 @@ env:
 jobs:
   lint:
     name: Lint & type check
+    # Fail fast instead of GitHub's 6-hour default if something hangs.
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -40,6 +42,7 @@ jobs:
 
   test:
     name: Tests (PostGIS + Redis)
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -89,8 +92,33 @@ jobs:
       - name: pytest
         run: pytest -v
 
+  simulator:
+    name: Hardware simulator
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: hardware_sim
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: hardware_sim/requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      - name: ruff check
+        run: ruff check --output-format=github .
+      - name: ruff format
+        run: ruff format --check .
+      - name: mypy (strict)
+        run: mypy carepoint_sim tests scripts
+      - name: pytest
+        run: pytest -v
+
   docker:
     name: Docker Compose smoke test
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -109,6 +137,18 @@ jobs:
           if grep -E "created +[1-9]" second-run.txt; then
             echo "::error::seed is not idempotent"; exit 1
           fi
+      - name: All simulated machines come online
+        run: |
+          for _ in $(seq 1 30); do
+            online=$(curl -fsS 'http://localhost:8000/api/v1/machines/nearby?lat=44.44&lng=26.08&radius_m=20000' \
+              | python3 -c 'import json, sys; print(sum(m["online"] for m in json.load(sys.stdin)))')
+            echo "online: $online of 6"
+            [ "$online" -eq 6 ] && exit 0
+            sleep 2
+          done
+          echo "::error::the simulated machines did not all come online"; exit 1
+      - name: Pickup through a simulated machine (pay in the API, enter the code at the kiosk)
+        run: python3 hardware_sim/scripts/pickup_smoke.py
       - name: pytest inside backend container
         run: docker compose exec -T -e REQUIRE_SERVICES=1 backend pytest -p no:cacheprovider -q
       - name: Dump logs on failure
@@ -120,7 +160,8 @@ jobs:
 
   automerge:
     name: Auto-merge
-    needs: [lint, test, docker]
+    timeout-minutes: 5
+    needs: [lint, test, simulator, docker]
     # Same-repo PRs only (never forks), not drafts, and not labelled do-not-merge.
     if: >-
       github.event_name == 'pull_request' &&

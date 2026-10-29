@@ -22,7 +22,7 @@ DEV_DEFAULT_PASSWORDS: dict[UserRole, str] = {
 }
 
 
-def _passwords() -> dict[UserRole, str]:
+def demo_passwords() -> dict[UserRole, str]:
     return {
         role: os.environ.get(f"SEED_{role.value.upper()}_PASSWORD") or default
         for role, default in DEV_DEFAULT_PASSWORDS.items()
@@ -34,7 +34,7 @@ async def _run() -> int:
         print("Refusing to seed demo data with ENVIRONMENT=production.", file=sys.stderr)
         return 1
 
-    passwords = _passwords()
+    passwords = demo_passwords()
     try:
         async with AsyncSessionLocal() as session, session.begin():
             report = await seed_demo_data(session, passwords)

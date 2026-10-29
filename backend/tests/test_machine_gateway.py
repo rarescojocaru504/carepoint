@@ -80,7 +80,7 @@ async def _corrections(world: World, slot_id: uuid.UUID) -> list[StockMovement]:
 
 
 async def test_signed_handshake_is_welcomed(make_machine: MakeMachine, world: World) -> None:
-    fake, machine, _ = await make_machine()
+    fake, machine, _ = await make_machine({"A1": 5, "B2": None})
 
     welcome = await fake.connect()
 
@@ -91,6 +91,14 @@ async def test_signed_handshake_is_welcomed(make_machine: MakeMachine, world: Wo
     assert (
         welcome["heartbeat_interval_seconds"] == get_settings().machine_heartbeat_interval_seconds
     )
+    a1, b2 = welcome["slots"]
+    assert a1["product_sku"].startswith("GW-")
+    assert a1 | {"product_sku": None} == {
+        "slot": "A1", "product_sku": None, "product_name": "Gateway item",
+        "capacity": 10, "quantity": 5,
+    }  # fmt: skip
+    assert b2 == {"slot": "B2", "product_sku": None, "product_name": None, "capacity": 10,
+                  "quantity": 0}  # fmt: skip
     assert fake.ws.subprotocol == "carepoint.v1"
     assert [e.kind for e in await _events(world, machine.id)] == [MachineEventKind.CONNECTED]
     assert (await _machine(world, machine.id)).last_seen_at is not None

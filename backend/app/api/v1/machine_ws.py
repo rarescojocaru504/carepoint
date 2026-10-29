@@ -126,6 +126,7 @@ async def machine_gateway_socket(
                 serial_number=machine.serial_number,
                 server_time=datetime.now(UTC),
                 heartbeat_interval_seconds=settings.machine_heartbeat_interval_seconds,
+                slots=await machine_gateway.planogram(connection),
             ).model_dump_json()
         )
         # Dispenses the machine may have missed while disconnected (ADR-018).

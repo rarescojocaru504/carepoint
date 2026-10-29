@@ -15,7 +15,7 @@ from redis.exceptions import RedisError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.models import Machine, MachineEventKind, MachineStatus
+from app.models import Machine, MachineEventKind, MachineSlot, MachineStatus, Product
 from app.schemas.machine_protocol import (
     Ack,
     Dispense,
@@ -26,6 +26,7 @@ from app.schemas.machine_protocol import (
     InvalidMessageError,
     MachineMessage,
     PickupRefusal,
+    PlanogramSlot,
     ProtocolErrorCode,
     ServerMessage,
     StockReport,
@@ -105,6 +106,28 @@ async def open_connection(
         await machine_telemetry.record_connection(session, machine.id, MachineEventKind.CONNECTED)
     logger.info("Machine %s connected (%s)", machine.serial_number, connection.connection_id)
     return connection
+
+
+async def planogram(connection: MachineConnection) -> list[PlanogramSlot]:
+    """The slot layout sent in `welcome`, so a machine (or a fresh simulator)
+    knows which product belongs where without any local configuration."""
+    async with connection.sessions() as session:
+        rows = await session.execute(
+            select(MachineSlot, Product.sku, Product.name)
+            .outerjoin(Product, Product.id == MachineSlot.product_id)
+            .where(MachineSlot.machine_id == connection.machine_id)
+            .order_by(MachineSlot.slot_code)
+        )
+        return [
+            PlanogramSlot(
+                slot=slot.slot_code,
+                product_sku=sku,
+                product_name=name,
+                capacity=slot.capacity,
+                quantity=slot.quantity,
+            )
+            for slot, sku, name in rows
+        ]
 
 
 async def pending_commands(connection: MachineConnection) -> list[Dispense]:

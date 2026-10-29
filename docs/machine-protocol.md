@@ -1,6 +1,6 @@
 # CarePoint machine protocol
 
-**Version 1** (WebSocket subprotocol `carepoint.v1`), revision 2: the connection, telemetry, stock counts and pickups (§3–§6).
+**Version 1** (WebSocket subprotocol `carepoint.v1`), revision 3: the connection, telemetry, stock counts and pickups (§3–§6). A working reference client is the hardware simulator in [`hardware_sim/`](../hardware_sim), written from this document without any backend code.
 
 This is the contract between the CarePoint backend and a vending machine. Anything that follows it can replace the simulator without any change to the backend: a Raspberry Pi, an ESP32 or a Python daemon. Every message is described here, and the exact JSON Schema of every message is in [`machine-protocol.schema.json`](machine-protocol.schema.json). That file is generated from the server's own validation models, and a test fails if the two drift apart. The design rationale is in ADR-010 and ADR-017 in [`architecture-decisions.md`](architecture-decisions.md).
 
@@ -71,10 +71,17 @@ This is sent once, straight after the handshake.
 
 ```json
 {"type": "welcome", "protocol": 1, "machine_id": "6f1c…", "serial_number": "CP-BUC-0001",
- "server_time": "2026-10-29T09:30:00.123456Z", "heartbeat_interval_seconds": 30}
+ "server_time": "2026-10-29T09:30:00.123456Z", "heartbeat_interval_seconds": 30,
+ "slots": [{"slot": "A1", "product_sku": "PAD-REG-10", "product_name": "Sanitary pads (10)",
+            "capacity": 10, "quantity": 8},
+           {"slot": "B4", "product_sku": null, "product_name": null, "capacity": 10, "quantity": 0}]}
 ```
 
 The machine should compare `server_time` with its own clock, and send a heartbeat every `heartbeat_interval_seconds`.
+
+`slots` is the **planogram**: which product belongs in which slot, as operators configured it. A slot with `product_sku: null` must stay empty. `quantity` is what the server *believes* is in the slot:
+- **First start:** a machine with no counts of its own (fresh out of the box) may adopt it.
+- **After that:** a machine reports what it physically counts (`stock_report`), never echoes this number back.
 
 ### Machine → server: `heartbeat`
 
@@ -325,3 +332,4 @@ machine                                             server
 |---|---|---|
 | 1 | 2026-10-29 | Handshake, `welcome`, `heartbeat`, `telemetry`, `stock_report`, `error_event`, `ack`, `error`, close codes |
 | 2 | 2026-10-29 | Pickups: `verify_code`, `verify_result`, `dispense`, `dispense_result`, the `unknown_command` error, §6 dispensing rules; `stock_report` leaves slots mid-dispense alone |
+| 3 | 2026-10-29 | `welcome.slots`: the planogram, so a machine needs no local slot configuration |
