@@ -52,12 +52,24 @@ class Notices:
                     return notice
         raise AssertionError("stream ended")
 
-    async def until(self, topic: str, change: str, within: float = 5) -> dict[str, Any]:
+    async def until(
+        self, topic: str, change: str, machine_id: str | None, within: float = 5
+    ) -> dict[str, Any]:
+        """The next matching notice. Others are skipped: Redis pub/sub ignores
+        database numbers, so a live stack on the same server (the Docker smoke
+        test runs pytest next to six simulated machines) adds its own notices."""
         async with asyncio.timeout(within):
             while True:
                 notice = await self.next(within)
-                if (notice["topic"], notice["change"]) == (topic, change):
+                if (notice["topic"], notice["change"], notice["machine_id"]) == (
+                    topic, change, machine_id,
+                ):  # fmt: skip
                     return notice
+
+    async def until_closed(self, within: float) -> None:
+        async with asyncio.timeout(within):
+            async for _ in self._lines:
+                pass
 
 
 @asynccontextmanager
@@ -92,26 +104,26 @@ async def test_operator_sees_machines_stock_and_reservations_change(
 
     async with _stream(gateway_url, operator) as notices:
         await fake.connect()
-        assert (await notices.until("machine", "connected"))["machine_id"] == mid
+        await notices.until("machine", "connected", mid)
 
         async with _http(gateway_url) as http:
             await http.post("/api/v1/admin/stock-movements", headers=operator,
                             json={"slot_id": str(slots["A1"].id), "reason": "restock",
                                   "delta": 2})  # fmt: skip
-        assert (await notices.until("stock", "restock"))["machine_id"] == mid
+        await notices.until("stock", "restock", mid)
         assert (await fake.recv())["type"] == "adjust_stock"  # the machine was told too
 
         async with world.sessions() as session:
             view, _ = await create_reservation(
                 session, redis, customer, ReservationCreate(slot_id=slots["A1"].id)
             )
-        assert (await notices.until("reservation", "created"))["machine_id"] == mid
+        await notices.until("reservation", "created", mid)
 
         await fake.request("telemetry", door="open", temperature_c=20)
-        assert (await notices.until("machine", "telemetry"))["machine_id"] == mid
+        await notices.until("machine", "telemetry", mid)
 
         await fake.close()
-        assert (await notices.until("machine", "disconnected"))["machine_id"] == mid
+        await notices.until("machine", "disconnected", mid)
     assert view.reservation.status is ReservationStatus.HELD
 
 
@@ -122,8 +134,7 @@ async def test_stream_ends_when_the_token_expires(
     _, operator = await _user(world, UserRole.OPERATOR)
 
     async with _stream(gateway_url, operator) as notices:
-        with pytest.raises(AssertionError, match="stream ended"):
-            await notices.next(within=8)  # closes after ~2 s (+ JWT leeway)
+        await notices.until_closed(within=10)  # ~2 s, plus the JWT leeway
 
 
 # --- what the services publish --------------------------------------------------
@@ -171,15 +182,12 @@ async def test_reservation_lifecycle_publishes_notices(
             second.reservation.expires_at -= timedelta(hours=1)
             await session.commit()
             await expire_due_reservations(session, redis)
-    changes = [(n["topic"], n["change"], n["machine_id"]) for n in received]
     mid = str(slot.machine_id)
-    assert changes == [
-        ("reservation", "created", mid),
-        ("reservation", "paid", mid),
-        ("reservation", "cancelled", mid),
-        ("reservation", "created", mid),
-        ("reservation", "expired", None),  # the sweeper covers several machines
-    ]
+    ours = [n["change"] for n in received if (n["topic"], n["machine_id"]) == ("reservation", mid)]
+    assert ours == ["created", "paid", "cancelled", "created"]
+    # The sweeper covers several machines at once, so its notice names none.
+    assert any((n["topic"], n["change"], n["machine_id"]) == ("reservation", "expired", None)
+               for n in received)  # fmt: skip
 
 
 async def test_publishing_never_fails_the_operation() -> None:
