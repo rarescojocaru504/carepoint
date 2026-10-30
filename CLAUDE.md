@@ -185,7 +185,7 @@ Rules for working through the roadmap:
 - [x] Structured JSON logs with request IDs, a basic metrics endpoint and a security pass with the `/security-review` skill (ADR-029, ADR-031, #31, #35).
 - [x] One-command demo: `docker compose up` plus seed data. The README covers quick start and architecture (#32; demo mode with `RESERVATION_HOLD_SECONDS`, ADR-030).
 - [x] **`docs/manual-testing-guide.md`** (#34): a step-by-step guide to running the stack and trying every feature by hand. It covers the API through Swagger, the operator dashboard, the kiosk simulator, the mobile app in Expo Go, failure scenarios such as expiry and an offline machine, and how the pieces fit together.
-- [ ] **Pitch kit** (`docs/pitch/`):
+- [x] **Pitch kit** (`docs/pitch/`, #36, #37):
   - Demo scenario script (`python -m app.scripts.demo`). It runs simulated customers in the background, so the map, dashboard and KPIs look busy during a presentation.
   - A recorded demo video of the full flow (Playwright video), as a backup if the live demo fails.
   - An architecture diagram, which the README also uses.

@@ -229,9 +229,11 @@ try {
   console.log(`2. reserved (hold ${holdSeconds} s; a retried tap returned the same hold); ` +
     `available ${slot.available} -> ${held.available}; live notices: created, availability`);
 
-  await caption(page, `In the app: reserve. The item is held for ${Math.round(holdSeconds / 60) || holdSeconds + " s"}${holdSeconds >= 60 ? " min" : ""}; ` +
-    `nobody else can take it. The operator sees it live:`);
+  const holdText = holdSeconds >= 60 ? `${Math.round(holdSeconds / 60)} min` : `${holdSeconds} s`;
+  // The row first, then the caption: the step's screenshot shows what the caption says.
   await feedRow(page, reservation, "held").waitFor({ timeout: 15_000 });
+  await caption(page, `In the app: reserve. The item is held for ${holdText}; ` +
+    `nobody else can take it. The operator sees it live.`);
   await pause();
 
   // 3. Pay (mock card): authorised now, captured only at pickup.
@@ -241,9 +243,9 @@ try {
   check(/^\d{6}$/.test(code) && paid.pickup.qr_payload === `CP1:${reservation.id}:${code}`, "bad pickup credential");
   await stream.waitFor((n) => n.reservation_id === reservation.id && n.change === "paid", "paid");
   console.log(`3. paid: payment authorised; pickup code ${code}; live notice: paid`);
+  await feedRow(page, reservation, "paid").waitFor({ timeout: 15_000 });
   await caption(page, `In the app: pay ${(reservation.total_cents / 100).toFixed(2)} ${reservation.currency} (authorised, not yet charged). ` +
     `Pickup code ${code.slice(0, 3)} ${code.slice(3)}.`);
-  await feedRow(page, reservation, "paid").waitFor({ timeout: 15_000 });
   await pause();
 
   // 4. At the machine: type the code; the machine dispenses; payment captured.
