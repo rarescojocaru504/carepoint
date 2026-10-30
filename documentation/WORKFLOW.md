@@ -320,7 +320,7 @@ Every job above is in `automerge.needs`; a new job must be added there in the sa
 
 **7. Prefer merging `main` into your branch** over rebasing a branch you've already pushed.
 
-**8. Keep the roadmap current:** tick the item in `CLAUDE.md` and add its PR number **in the same PR** that finishes it. Record each phase's key decisions as a new ADR in `docs/architecture-decisions.md`; the next numbers are ADR-024 and up.
+**8. Keep the roadmap current:** tick the item in `CLAUDE.md` and add its PR number **in the same PR** that finishes it. Record each phase's key decisions as a new ADR in `docs/architecture-decisions.md`; the next number is ADR-033.
 
 ---
 

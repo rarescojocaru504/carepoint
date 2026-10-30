@@ -117,6 +117,10 @@ Failure handling is built in: a machine going offline, a jammed or partial dispe
 
 | Document | For |
 |---|---|
+| [`documentation/APP_WALKTHROUGH.md`](documentation/APP_WALKTHROUGH.md) | **start here to understand or present the app**: the customer's journey and the failure scenarios, with where each step lives in the code |
+| [`documentation/READING_THE_CODE.md`](documentation/READING_THE_CODE.md) | how to read, understand and test the code: reading order, a hands-on exercise, tests as documentation |
+| [`docs/manual-testing-guide.md`](docs/manual-testing-guide.md) | trying every feature by hand, with what you should see |
+| [`docs/pitch/`](docs/pitch) | the pitch kit: one-pager, demo video, hardware cost estimate, live-demo runbook |
 | [`documentation/PROJECT_SUMMARY.md`](documentation/PROJECT_SUMMARY.md) | what each phase built, and why |
 | [`documentation/CODE.md`](documentation/CODE.md) | a map of the code, data model, API and main flows |
 | [`documentation/WORKFLOW.md`](documentation/WORKFLOW.md) | running, testing, debugging and shipping changes |

@@ -70,7 +70,7 @@ backend/
 │   ├── services/          all business logic (see 2.4)
 │   └── scripts/           command-line entry points (python -m app.scripts.<name>)
 ├── alembic/versions/      migrations 0001 … 0008 (never change the schema without one)
-├── tests/                 pytest suite (459 tests), see 2.7
+├── tests/                 pytest suite (530 tests), see 2.7
 ├── Dockerfile, requirements*.txt, pyproject.toml (ruff, mypy --strict), pytest.ini
 ```
 
