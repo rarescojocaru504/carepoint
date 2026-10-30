@@ -30,11 +30,14 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
     currency: str = Field(default="RON", pattern=r"^[A-Z]{3}$")
 
+    # 127.0.0.1, not "localhost": the Compose stack publishes PostgreSQL and
+    # Redis on IPv4 loopback only (ADR-031), and on Windows "localhost" tries
+    # IPv6 first, costing ~2 s per new connection before falling back.
     database_url: str = Field(
-        default="postgresql+asyncpg://carepoint:carepoint@localhost:5432/carepoint",
+        default="postgresql+asyncpg://carepoint:carepoint@127.0.0.1:5432/carepoint",
         description="Async SQLAlchemy DSN (must use the asyncpg driver).",
     )
-    redis_url: str = "redis://localhost:6379/0"
+    redis_url: str = "redis://127.0.0.1:6379/0"
     db_echo: bool = False
 
     # --- auth -------------------------------------------------------------------

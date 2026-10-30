@@ -1075,3 +1075,51 @@ The expiry half needs short holds, so it runs only when the server's holds are 9
 **Found on the way.**
 - The e2e scripts built paths with `new URL(...).pathname`, which is `/C:/...` on Windows. They now use `fileURLToPath`, so they run on the owner's Windows machine too (#32).
 - The story's first version checked for the dashboard's sign-in form before React had drawn it, failing about 1 run in 3. It now waits for whichever screen appears.
+
+## ADR-031: The security pass, and closing the demo stack to the network (2026-10-30)
+
+**The pass.** Phase 11 asks for a security pass with the `/security-review` skill. That skill reviews only the changes on the current branch, so it was run on #33, which contained only the e2e test and docs, and found nothing. To cover the whole system, the same method and criteria were applied to every part of the codebase:
+- the criteria: only high-confidence, exploitable issues (more than 80%); no denial of service, rate limiting, theoretical races or hardening wishes;
+- every candidate checked against the code and the existing tests before being accepted.
+
+The review was split into four areas:
+
+| Area | Result |
+|---|---|
+| People's authentication and authorisation: JWTs, refresh rotation, roles on every route, registration, rate limits, secrets | **No findings.** The algorithm is pinned and every claim is required; the role is read from the database on each request; registration can't grant a role; refresh rotation is row-locked with reuse detection; every customer query is filtered by owner (someone else's id gives 404); there is no raw SQL with user input; the production checks refuse the development secrets |
+| Money and stock: reservations, checkout, settlement, pickup codes, discovery, the operator API | **No findings.** Prices and amounts are computed on the server; quantities are bounded strict integers; only `paid` reservations dispense, under row locks; cancel is refused during a dispense; codes are random, stored as a peppered HMAC bound to the machine, and never logged; Lua scripts receive their values as arguments; operator inputs reject unknown fields |
+| The machine side: signed handshakes, replay protection, the gateway, dispense results, telemetry, the simulator and kiosk | **No findings.** A machine's key can't authenticate as another machine; nonces are single-use; dispense results and stock reports are scoped to the connected machine's own commands and slots; telemetry is strictly validated; the ledger refuses negative stock; key files have mode 0600; the kiosk has no unsafe HTML |
+| Live channels, metrics, logs, the dashboard and app, Compose and CI | **One finding**, below |
+
+**The finding: the demo stack was open to the local network** (Medium).
+- **Where it would happen:** the README tells the presenter to run the stack on a laptop and connect a phone over Wi-Fi, which is exactly a shared venue network at a pitch.
+- **What was exposed:** `docker-compose.yml` published PostgreSQL (5432, password `carepoint`) and Redis (6379, no password) on every interface, and the backend used the **public** development `JWT_SECRET` and `PICKUP_CODE_PEPPER`.
+- **What an attacker on the same Wi-Fi could have done:**
+  - opened the database: changed roles, read password hashes;
+  - read the pickup-code hashes and, with the public pepper, recovered every active code offline in under a second, then collected someone else's paid item at the kiosk. This would have defeated ADR-016;
+  - forged an access token for any user whose id they read;
+  - edited holds and published fake notices in Redis.
+- **Also exposed:** the simulator's kiosk API (8080), which has no authentication by design (ADR-020).
+
+**The fix:**
+- **One service on the network.** Only the API (8000) is published on every interface, because the phone needs it. PostgreSQL, Redis, the kiosks (8080) and the dashboard (3000) are published on `127.0.0.1` only. Tools on the same computer (pytest, psql, the browser, the e2e scripts) work as before; other devices can't connect. To show a kiosk on a tablet, change that one port mapping knowingly.
+- **Secrets of its own.** On first start, `python -m app.scripts.local_secrets` generates a random 64-character `JWT_SECRET` and `PICKUP_CODE_PEPPER`.
+  - They are kept in a private file (mode 0600, in a 0700 directory) in the `backend_secrets` volume, so restarts keep sessions and issued codes valid.
+  - The start command exports them before the app starts.
+  - A value set in the environment always wins, which is how a real deployment passes its own.
+  - The start command captures the script's output before using it, so a failure stops the start instead of silently falling back to the public values.
+  - `docker compose down --volumes` discards them along with everything else.
+- **`127.0.0.1`, not `localhost`.** The code's default database and Redis URLs, and the tests', now name `127.0.0.1`. On Windows `localhost` resolves to IPv6 `::1` first. With the ports published on IPv4 loopback only, every new connection waited about 2 seconds to be refused there before falling back, which turned the 3-minute test suite into what looked like a hang. Measured: `::1` refused in 2.0 s, `127.0.0.1` connected in 0.00 s.
+- **Not done, on purpose:**
+  - A Redis password: Redis is no longer reachable from other devices, and adding one would change every client's URL, the tests included, for no remaining exposure.
+  - The demo accounts' published passwords stay. They are what makes the demo usable, and they are only as powerful as the demo itself: the seed and `demo_init` refuse to run in production.
+
+**Evidence:**
+- **7 tests for the secrets script:** strong, distinct, generated once and reused; stored privately; different per installation; environment values win; a damaged file is completed rather than trusted; the printed exports satisfy the production checks; the command-line output.
+- **On the rebuilt stack:**
+  - the database, Redis, the kiosks and the dashboard answer on `localhost` but refuse connections on the computer's Wi-Fi address, while the API answers on both;
+  - the backend process runs with the generated secrets;
+  - an access token signed with the old public development secret is rejected with 401;
+  - a restart keeps a signed-in session working;
+  - the pickup smoke test, both Playwright smoke tests and the whole-story test (with 40 s holds) pass;
+  - the whole backend suite passes in its usual time (517 passed).

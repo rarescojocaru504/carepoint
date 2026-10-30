@@ -30,7 +30,7 @@ from tests.world import World
 
 TEST_DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL",
-    "postgresql+asyncpg://carepoint:carepoint@localhost:5432/carepoint_test",
+    "postgresql+asyncpg://carepoint:carepoint@127.0.0.1:5432/carepoint_test",  # see config.py
 )
 
 # CI sets REQUIRE_SERVICES=1 so a broken service fails the run instead of skipping tests.

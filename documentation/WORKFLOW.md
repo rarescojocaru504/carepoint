@@ -73,7 +73,11 @@ docker compose stop simulator
 docker compose down --volumes
 ```
 
-`down --volumes` wipes the database, Redis and the machine keys, so the next `up` starts fresh.
+`down --volumes` wipes the database, Redis, the machine keys and the backend's generated secrets, so the next `up` starts fresh.
+
+**What other devices can reach** (ADR-031): only the API on port 8000, which the phone app needs. PostgreSQL (5432), Redis (6379), the kiosks (8080) and the dashboard (3000) are published on `127.0.0.1`, so they work from this computer only. To show a kiosk on a tablet, change that service's port mapping in `docker-compose.yml` from `127.0.0.1:8080:8080` to `8080:8080`, knowing that its controller API has no login.
+
+**Secrets:** on first start the backend generates a random `JWT_SECRET` and `PICKUP_CODE_PEPPER` and keeps them in the `backend_secrets` volume (`app/scripts/local_secrets.py`). To use your own, set them in the environment or in `.env`; a value set there always wins.
 
 **A pickup by hand, in about a minute:**
 1. In Swagger, log in as the customer (`POST /auth/login`), then use **Authorize** with the access token.

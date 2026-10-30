@@ -60,6 +60,8 @@ You can also copy [`.env.example`](.env.example) to `.env`.
 
 **Start from scratch:** `docker compose down --volumes` wipes the database, Redis and machine keys.
 
+**On a shared network** (a venue's Wi-Fi), only the API on port 8000 is reachable from other devices, because your phone needs it. The database, Redis, the dashboard and the kiosks answer only on this computer. The backend also generates its own random signing secrets on first start. See ADR-031.
+
 ---
 
 ## The story, end to end

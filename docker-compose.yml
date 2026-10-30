@@ -8,8 +8,10 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-carepoint}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-carepoint}
       POSTGRES_DB: ${POSTGRES_DB:-carepoint}
+    # Loopback only: tools on this computer (pytest, psql) can reach it, other
+    # devices on the network can't (ADR-031).
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
@@ -24,7 +26,7 @@ services:
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"  # loopback only (ADR-031)
     volumes:
       - redis_data:/data
     healthcheck:
@@ -47,8 +49,14 @@ services:
     # before it is buffered (the gateway itself allows 16 KiB, ADR-017).
     # DEMO_INIT=1 (the default here): seed the demo data and issue the demo
     # machines' keys for the hardware simulator before serving (ADR-019).
+    # JWT_SECRET and PICKUP_CODE_PEPPER: generated on first start and kept in the
+    # backend_secrets volume, unless set in the environment (ADR-031). The output
+    # is captured first, so a failure stops the start instead of silently
+    # falling back to the public development values.
     command: >-
-      sh -c "alembic upgrade head &&
+      sh -c "secrets=$$(python -m app.scripts.local_secrets /var/lib/carepoint/secrets) &&
+             eval \"$$secrets\" &&
+             alembic upgrade head &&
              if [ \"$${DEMO_INIT}\" = 1 ]; then
                python -m app.scripts.demo_init --keys-dir /var/lib/carepoint/machine-keys;
              fi &&
@@ -65,12 +73,15 @@ services:
       RESERVATION_HOLD_SECONDS: ${RESERVATION_HOLD_SECONDS:-900}
     volumes:
       - machine_keys:/var/lib/carepoint/machine-keys
+      - backend_secrets:/var/lib/carepoint/secrets
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready', timeout=3)"]
       interval: 10s
       timeout: 5s
       start_period: 15s
       retries: 5
+    # The one service published on every interface: the phone app reaches the
+    # API over the local network (ADR-031).
     ports:
       - "8000:8000"
     depends_on:
@@ -97,8 +108,10 @@ services:
       timeout: 5s
       start_period: 10s
       retries: 5
+    # Loopback only: the kiosk controller API has no authentication, like a real
+    # machine's controller that only its own screen can reach (ADR-020, ADR-031).
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     depends_on:
       backend:
         condition: service_healthy
@@ -114,12 +127,13 @@ services:
       timeout: 5s
       retries: 5
     ports:
-      - "3000:80"
+      - "127.0.0.1:3000:80"  # loopback only (ADR-031)
     depends_on:
       backend:
         condition: service_healthy
 
 volumes:
+  backend_secrets:
   postgres_data:
   redis_data:
   machine_keys:
