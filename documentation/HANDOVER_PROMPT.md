@@ -1,5 +1,7 @@
 # Handover prompt for a local Claude Code session
 
+> **History.** This prompt started the local session that built Phases 9–11, which are now complete. The project's current state is in [`PROJECT_SUMMARY.md`](PROJECT_SUMMARY.md); its references to ADR-023 and to Phases 9–11 as future work are as they were when it was written.
+
 **How to use it:**
 1. Open a terminal in your local clone of the repository and update it: `git checkout main && git pull`.
 2. Start Claude Code with `claude`.

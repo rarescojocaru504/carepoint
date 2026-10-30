@@ -40,8 +40,9 @@ Your goal is to build a scalable, production-ready system utilizing FastAPI, Pos
 ├── hardware_sim/          # Python daemon simulating machine telemetry + kiosk SPA
 ├── dashboard/             # Operator dashboard (React + TypeScript, Vite)
 ├── loadtest/              # Reservation race/load tests (Locust or k6)
-├── docs/                  # ADRs, protocol spec, guides, pitch kit
-├── documentation/         # Handover docs: project summary, CODE.md, WORKFLOW.md, handover prompt
+├── e2e/                   # Playwright tests against the running stack, incl. the whole MVP story
+├── docs/                  # ADRs, protocol spec, benchmarks, manual testing guide, pitch kit (docs/pitch/)
+├── documentation/         # Project summary, CODE.md, WORKFLOW.md, app walkthrough, reading guide
 └── docker-compose.yml     # Local dev orchestration
 ```
 
@@ -180,7 +181,7 @@ Rules for working through the roadmap:
 - [x] Live stock and reservation status pushed to the app over WebSocket or server-sent events, so a hold or expiry shows up straight away (ADR-026, ADR-028, #28, #30).
 - [x] Handling for an expired hold, a machine going offline and the app losing connection (ADR-028, #30).
 
-### Phase 11 — MVP hardening, handover & pitch kit
+### Phase 11 — MVP hardening, handover & pitch kit ✅
 - [x] An end-to-end test of the whole story in CI: API, simulator and kiosk (Playwright), driven through the same API calls the app makes (`e2e/story.mjs`, ADR-030, #33).
 - [x] Structured JSON logs with request IDs, a basic metrics endpoint and a security pass with the `/security-review` skill (ADR-029, ADR-031, #31, #35).
 - [x] One-command demo: `docker compose up` plus seed data. The README covers quick start and architecture (#32; demo mode with `RESERVATION_HOLD_SECONDS`, ADR-030).
