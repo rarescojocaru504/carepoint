@@ -1123,3 +1123,47 @@ The review was split into four areas:
   - a restart keeps a signed-in session working;
   - the pickup smoke test, both Playwright smoke tests and the whole-story test (with 40 s holds) pass;
   - the whole backend suite passes in its usual time (517 passed).
+
+## ADR-032: The demo scenario script (2026-10-30)
+
+A pitch needs the system visibly alive: pins changing, reservations streaming into the dashboard, KPIs moving. `python -m app.scripts.demo` keeps a few simulated customers using CarePoint for as long as the presentation lasts.
+
+```bash
+docker compose exec backend python -m app.scripts.demo                 # until Ctrl+C
+docker compose exec backend python -m app.scripts.demo --shoppers 6 --every 5 --minutes 20
+```
+
+**Through the front door, not the database.**
+- Shoppers use the real API exactly as the app does: register once (`shopper-N@carepoint.demo`; later runs sign in), nearby machines, a machine's slots, reserve with an idempotency key, pay with the mock card.
+- Pickups go through the **simulator's kiosk API**: the shopper's code is typed at the machine holding the item, so the simulated machine really dispenses, the payment is captured, the stock goes down and every live notice fires.
+- So the demo exercises the whole stack and can never show a state the product couldn't reach by itself.
+
+**What a customer does after paying** (seeded and repeatable with `--seed`):
+
+| Share | Scenario | What the audience sees |
+|---|---|---|
+| 65% | picks up 4–15 s later | reservation → paid → dispensed and captured; stock −1 |
+| 20% | never comes | the hold runs out and the payment is voided; the unit goes back on sale. With demo-mode holds (ADR-030) this is visible within a minute |
+| 15% | cancels 3–10 s later | cancelled, voided |
+
+**Keeping it running for an hour:**
+- Each shopper holds one reservation at a time, so it never hits the 3-hold limit.
+- Machines that are offline, in maintenance, or have a fault switched on in the kiosk's operator panel are skipped. A presenter can therefore demonstrate a fault without the script fighting it.
+- Every fifth customer, the demo **operator** refills to capacity any slot at or below 2 units, through the operator API, so it is recorded in the ledger and sent to the machine like a real restock.
+- An expired access token triggers one re-login. A failed step (say, the stack restarting) is logged and skipped. Ctrl+C or `--minutes` stops it and cancels pending pickups.
+- It refuses to run with `ENVIRONMENT=production`, like the seed.
+
+**Evidence:**
+- 12 tests against the real API (in-process) and a fake kiosk:
+  - a pickup types that reservation's code at that machine;
+  - a cancel is voided;
+  - an abandoned hold stays paid until it expires;
+  - shoppers are created once and reused;
+  - one hold per shopper;
+  - offline, maintenance and jammed machines are skipped;
+  - the operator refills only low slots, recorded as restocks;
+  - the scenario mix matches its weights;
+  - production is refused;
+  - bad options are refused.
+- **Run for 90 s against the Compose stack** (`--every 3`): 14 reservations, real pickups at four machines, one cancel and four holds left to expire. The operator refilled 7 low slots. The dashboard's pickup rate moved from 53% to 60%.
+- Also run inside the backend container with its defaults.

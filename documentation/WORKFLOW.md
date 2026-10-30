@@ -65,6 +65,12 @@ docker compose logs -f backend simulator
 docker compose exec backend python -m app.scripts.seed
 ```
 
+Keep the system busy during a presentation with simulated customers (ADR-032; Ctrl+C stops it):
+
+```bash
+docker compose exec backend python -m app.scripts.demo
+```
+
 ```bash
 docker compose stop simulator
 ```

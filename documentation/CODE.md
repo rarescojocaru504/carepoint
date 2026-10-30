@@ -239,6 +239,8 @@ The live interactive docs are at **http://localhost:8000/docs** (Swagger) and th
 | `export_protocol_schema` | regenerate `docs/machine-protocol.schema.json`; the drift test `test_published_json_schema_matches_the_code` fails until you do |
 | `export_openapi` | regenerate `mobile/openapi.json`, the source of the mobile app's API types; the drift test `test_published_openapi_matches_the_code` fails until you do |
 | `loadtest_fixtures` | data for `loadtest/` |
+| `demo` | simulated customers for a presentation: reserve, pay, then pick up at the kiosk, cancel or let the hold expire; the operator restocks low slots (ADR-032) |
+| `local_secrets` | generates and keeps this installation's `JWT_SECRET` and `PICKUP_CODE_PEPPER`; run by the Compose start command (ADR-031) |
 
 ---
 
