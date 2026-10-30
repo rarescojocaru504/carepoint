@@ -82,8 +82,8 @@ Settings are read from environment variables; the names are the field names in u
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `DATABASE_URL` | `postgresql+asyncpg://carepoint:carepoint@localhost:5432/carepoint` | must use asyncpg |
-| `REDIS_URL` | `redis://localhost:6379/0` | |
+| `DATABASE_URL` | `postgresql+asyncpg://carepoint:carepoint@127.0.0.1:5432/carepoint` | must use asyncpg; `127.0.0.1` rather than `localhost`, see ADR-031 |
+| `REDIS_URL` | `redis://127.0.0.1:6379/0` | |
 | `JWT_SECRET`, `PICKUP_CODE_PEPPER` | dev defaults | **production refuses to start with the defaults** |
 | `ACCESS_TOKEN_TTL_SECONDS` | 900 | |
 | `REFRESH_TOKEN_TTL_SECONDS` | 30 days | |
