@@ -761,7 +761,7 @@ data: {"topic": "stock", "machine_id": "…", "change": "restock", "at": "2026-1
   - images only from the app itself and OpenStreetMap's tile servers;
   - `connect-src 'self'`;
   - `frame-ancestors 'none'`.
-- **Other headers:** `X-Content-Type-Options` and `Referrer-Policy`.
+- **Other headers:** `X-Content-Type-Options` and `Referrer-Policy: strict-origin-when-cross-origin`. Cross-origin requests carry only the origin. (It was first `same-origin`, which sends no `Referer` to other sites; OpenStreetMap then answered every tile with an "Access blocked" image. Fixed in #39, and `e2e/dashboard-smoke.mjs` now checks that tile requests carry a `Referer`.)
 - **Streaming:** `proxy_buffering off` for the event stream.
 - **Caching:** hashed assets are cached immutably, and `index.html` never.
 
