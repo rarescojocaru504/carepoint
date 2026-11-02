@@ -52,7 +52,9 @@ def test_signature_matches_the_adr_010_known_answer_vector() -> None:
 async def test_connects_and_reports_in_protocol_order(gateway: Gateway, start: Start) -> None:
     fake, _ = gateway
     machine = await start()
-    await fake.wait_for("heartbeat")
+    # The second telemetry follows the first heartbeat; wait for it rather than
+    # assume it has arrived (on Windows it often hadn't, failing every run).
+    await fake.wait_for("telemetry", count=2)
 
     kinds = [m["type"] for m in fake.received]
     assert kinds[:4] == ["stock_report", "telemetry", "heartbeat", "telemetry"]
