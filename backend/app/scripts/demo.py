@@ -43,8 +43,8 @@ RESTOCK_AT = 2
 class Options:
     api_url: str = "http://127.0.0.1:8000/api/v1"
     kiosk_url: str = "http://simulator:8080"
-    lat: float = 44.44
-    lng: float = 26.08
+    lat: float = 46.77  # the Cluj-Napoca demo centre (ADR-033)
+    lng: float = 23.59
     shoppers: int = 5
     every: float = 6.0  # seconds between customers, on average
     minutes: float = 0.0  # 0: until stopped

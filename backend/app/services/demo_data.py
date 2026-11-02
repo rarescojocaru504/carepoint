@@ -1,7 +1,9 @@
 """Demo dataset for local development, CI and pitch demos.
 
-Machines sit at real (approximate) locations around university campuses in
-Bucharest. To demo elsewhere, edit MACHINES; everything else adapts.
+Machines sit at real locations around university campuses and student areas in
+Cluj-Napoca (coordinates from OpenStreetMap, ADR-033). To demo elsewhere, edit
+MACHINES and the demo centre (mobile/src/services/location.ts and the
+dashboard map); everything else adapts.
 
 Deliberately no medicines: in most of the EU, over-the-counter drugs cannot be
 sold from unattended machines without pharmacy oversight.
@@ -94,26 +96,26 @@ def _standard_layout(stock: tuple[int, ...]) -> tuple[DemoSlot, ...]:
 
 
 MACHINES: tuple[DemoMachine, ...] = (
-    DemoMachine("CP-BUC-0001", "Universitate - Piata Universitatii",
-                "Bd. Regina Elisabeta 4-12, Bucuresti", 44.4355, 26.1013,
+    DemoMachine("CP-CLJ-0001", "Centru - Piata Unirii",
+                "Piata Unirii, Cluj-Napoca", 46.76975, 23.58973,
                 _standard_layout((8, 6, 9, 4, 10, 7, 5, 3))),
-    DemoMachine("CP-BUC-0002", "Politehnica - Rectorat",
-                "Splaiul Independentei 313, Bucuresti", 44.4386, 26.0496,
+    DemoMachine("CP-CLJ-0002", "Piezisa - Campus studentesc",
+                "Strada Piezisa, Cluj-Napoca", 46.76420, 23.57633,
                 _standard_layout((10, 10, 8, 6, 9, 10, 10, 6))),
-    DemoMachine("CP-BUC-0003", "Campus Regie - Camin C1",
-                "Str. Mihail Moxa / Regie, Bucuresti", 44.4430, 26.0640,
+    DemoMachine("CP-CLJ-0003", "Observator - Campus UTCN",
+                "Str. Observatorului 34, Cluj-Napoca", 46.75628, 23.59329,
                 _standard_layout((2, 1, 0, 3, 6, 5, 4, 2))),  # low stock + one sold out
-    DemoMachine("CP-BUC-0004", "ASE - Piata Romana",
-                "Piata Romana 6, Bucuresti", 44.4475, 26.0973,
+    DemoMachine("CP-CLJ-0004", "FSEGA - Iulius Mall",
+                "Str. Teodor Mihali 58-60, Cluj-Napoca", 46.77425, 23.62105,
                 _standard_layout((7, 5, 6, 5, 8, 6, 9, 4))),
-    DemoMachine("CP-BUC-0005", "Gara de Nord - Hol principal",
-                "Piata Garii de Nord 1, Bucuresti", 44.4467, 26.0752,
+    DemoMachine("CP-CLJ-0005", "Hasdeu - Complex studentesc",
+                "Str. Bogdan Petriceicu Hasdeu, Cluj-Napoca", 46.76248, 23.57609,
                 (DemoSlot("A1", "PAD-REG-10", 12, 10), DemoSlot("A2", "TOOTH-KIT", 8, 6),
                  DemoSlot("A3", "DEO-50ML", 8, 5), DemoSlot("A4", "MASK-FFP2-5", 10, 9),
                  DemoSlot("B1", "DIAPER-4-5", 6, 4), DemoSlot("B2", "WIPES-20", 12, 11),
                  DemoSlot("B3", "CABLE-USBC", 6, 2), DemoSlot("B4", None, 10, 0))),
-    DemoMachine("CP-BUC-0006", "Medicina - UMF Carol Davila",
-                "Bd. Eroii Sanitari 8, Bucuresti", 44.4350, 26.0700,
+    DemoMachine("CP-CLJ-0006", "Parcul Central",
+                "Parcul Central Simion Barnutiu, Cluj-Napoca", 46.76986, 23.57696,
                 _standard_layout((5, 5, 5, 5, 5, 5, 5, 5)),
                 status=MachineStatus.MAINTENANCE),
 )  # fmt: skip

@@ -40,7 +40,7 @@ function position(lat: number, lng: number) {
 describe("locate", () => {
   it("searches around the phone when location is allowed", async () => {
     grant();
-    location.getLastKnownPositionAsync.mockResolvedValue(position(44.4268, 26.1025));
+    location.getLastKnownPositionAsync.mockResolvedValue(position(46.7712, 23.6236));
     const { seen } = installFakeServer({
       "GET /api/v1/machines/nearby": () => json(200, [summary()]),
     });
@@ -49,7 +49,7 @@ describe("locate", () => {
 
     const state = useMachines.getState();
     expect(state.source).toBe("device");
-    expect(state.center).toEqual({ lat: 44.4268, lng: 26.1025 });
+    expect(state.center).toEqual({ lat: 46.7712, lng: 23.6236 });
     expect(state.nearby).toEqual({ status: "ready", data: [summary()] });
     expect(seen.map((s) => s.path)).toEqual(["/api/v1/machines/nearby"]);
   });
@@ -57,7 +57,7 @@ describe("locate", () => {
   it("sends the position and radius as query parameters", async () => {
     grant();
     location.getLastKnownPositionAsync.mockResolvedValue(null);
-    location.getCurrentPositionAsync.mockResolvedValue(position(44.4268, 26.1025));
+    location.getCurrentPositionAsync.mockResolvedValue(position(46.7712, 23.6236));
     const urls: string[] = [];
     global.fetch = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       urls.push(new Request(input, init).url);
@@ -67,12 +67,12 @@ describe("locate", () => {
     await useMachines.getState().locate();
 
     const query = new URL(urls[0] ?? "").searchParams;
-    expect(query.get("lat")).toBe("44.4268");
-    expect(query.get("lng")).toBe("26.1025");
+    expect(query.get("lat")).toBe("46.7712");
+    expect(query.get("lng")).toBe("23.6236");
     expect(query.get("radius_m")).toBe(String(SEARCH_RADIUS_M));
   });
 
-  it("falls back to the Bucharest demo area when location is refused", async () => {
+  it("falls back to the Cluj-Napoca demo area when location is refused", async () => {
     location.requestForegroundPermissionsAsync.mockResolvedValue({
       status: Location.PermissionStatus.DENIED,
     } as Awaited<ReturnType<typeof Location.requestForegroundPermissionsAsync>>);

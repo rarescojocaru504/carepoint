@@ -39,7 +39,7 @@ beforeEach(() => {
   cancelPendingSync();
   useReservations.getState().clear();
   useMachines.setState({
-    center: { lat: 44.44, lng: 26.08 },
+    center: { lat: 46.77, lng: 23.59 },
     source: "demo",
     nearby: { status: "ready", data: [summary()] },
     details: { [MACHINE_ID]: { status: "ready", data: detail() } },

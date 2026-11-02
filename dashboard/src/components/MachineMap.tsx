@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react";
 
 import type { AdminMachine } from "../api";
 
-const BUCHAREST: L.LatLngTuple = [44.44, 26.08];
+const CLUJ_NAPOCA: L.LatLngTuple = [46.77, 23.59]; // the demo centre (ADR-033)
 
 function colour(machine: AdminMachine): string {
   if (machine.status !== "active") return "#d97706";
@@ -26,7 +26,7 @@ export function MachineMap({
 
   useEffect(() => {
     if (element.current === null) return undefined;
-    const instance = L.map(element.current, { scrollWheelZoom: false }).setView(BUCHAREST, 12);
+    const instance = L.map(element.current, { scrollWheelZoom: false }).setView(CLUJ_NAPOCA, 13);
     // The single host OpenStreetMap asks clients to use (no a/b/c subdomains).
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,

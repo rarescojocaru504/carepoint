@@ -7,9 +7,9 @@ export const MACHINE_ID = "11111111-1111-4111-8111-111111111111";
 export function summary(overrides: Partial<Schemas["MachineSummary"]> = {}) {
   const machine: Schemas["MachineSummary"] = {
     id: MACHINE_ID,
-    name: "Universitate - Piata Universitatii",
-    address: "Bd. Regina Elisabeta 4-12, Bucuresti",
-    location: { lat: 44.4355, lng: 26.1025 },
+    name: "Centru - Piata Unirii",
+    address: "Piata Unirii, Cluj-Napoca",
+    location: { lat: 46.76975, lng: 23.58973 },
     status: "active",
     online: true,
     distance_m: 640,
@@ -39,9 +39,9 @@ export function product(overrides: Partial<Schemas["ProductRead"]> = {}) {
 export function detail(overrides: Partial<Schemas["MachineDetail"]> = {}) {
   const machine: Schemas["MachineDetail"] = {
     id: MACHINE_ID,
-    name: "Universitate - Piata Universitatii",
-    address: "Bd. Regina Elisabeta 4-12, Bucuresti",
-    location: { lat: 44.4355, lng: 26.1025 },
+    name: "Centru - Piata Unirii",
+    address: "Piata Unirii, Cluj-Napoca",
+    location: { lat: 46.76975, lng: 23.58973 },
     status: "active",
     online: true,
     last_seen_at: "2026-10-29T12:00:00Z",

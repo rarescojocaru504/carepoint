@@ -42,16 +42,16 @@ docker compose up --build --wait
 | Operator | `operator@carepoint.demo` | `carepoint-operator-demo` |
 | Admin | `admin@carepoint.demo` | `carepoint-admin-demo` |
 
-The six demo machines, all in Bucharest:
+The six demo machines, all in Cluj-Napoca:
 
 | Serial | Name | Note |
 |---|---|---|
-| CP-BUC-0001 | Universitate - Piata Universitatii | |
-| CP-BUC-0002 | Politehnica - Rectorat | |
-| CP-BUC-0003 | ASE - Piata Romana | |
-| CP-BUC-0004 | Campus Regie - Camin C1 | |
-| CP-BUC-0005 | Gara de Nord - Hol principal | dispenses slowly on purpose (4 s per item; the others take 1.5 s) |
-| CP-BUC-0006 | Medicina - UMF Carol Davila | **in maintenance** on purpose: nothing can be reserved there |
+| CP-CLJ-0001 | Centru - Piata Unirii | |
+| CP-CLJ-0002 | Piezisa - Campus studentesc | |
+| CP-CLJ-0003 | Observator - Campus UTCN | starts with low stock and one sold-out slot |
+| CP-CLJ-0004 | FSEGA - Iulius Mall | |
+| CP-CLJ-0005 | Hasdeu - Complex studentesc | dispenses slowly on purpose (4 s per item; the others take 1.5 s) |
+| CP-CLJ-0006 | Parcul Central | **in maintenance** on purpose: nothing can be reserved there |
 
 **Demo mode (short holds).** A hold normally lasts 15 minutes. To see expiries without waiting, restart just the backend with one-minute holds:
 
@@ -93,8 +93,8 @@ If the customer doesn't come, the hold expires: the unit is back on sale, the pa
 Open http://localhost:8000/docs.
 
 **3.1 Browse without an account**
-1. `GET /api/v1/machines/nearby`. Click **Try it out**, enter `lat` = `44.44`, `lng` = `26.08`, `radius_m` = `20000`, then **Execute**.
-   **You should see:** six machines, nearest first, each with `distance_m`, `online: true` and `units_available`. Medicina has `status: "maintenance"`.
+1. `GET /api/v1/machines/nearby`. Click **Try it out**, enter `lat` = `46.77`, `lng` = `23.59`, `radius_m` = `20000`, then **Execute**.
+   **You should see:** six machines, nearest first, each with `distance_m`, `online: true` and `units_available`. Parcul Central has `status: "maintenance"`.
 2. Copy one machine's `id` into `GET /api/v1/machines/{machine_id}`.
    **You should see:** its slots, each with the product, its price in `price_cents`, and `available`.
 3. `GET /api/v1/products` lists the catalogue.
@@ -130,7 +130,7 @@ Access tokens last 15 minutes. If calls start returning 401, log in again and re
 | Checkout with a card number such as `{"payment_method": "4111111111111111"}` | 422: only payment tokens are accepted, never card numbers |
 | Four held reservations at once | the 4th gets 409 `too_many_active` (the limit is 3 per customer) |
 | Reserve more units than are available (`"quantity": 10` on a small slot) | 409 `insufficient_stock` with how many are `available` |
-| Reserve at Medicina (maintenance) | 409 `not_sellable` |
+| Reserve at Parcul Central (maintenance) | 409 `not_sellable` |
 | `POST /api/v1/reservations/{id}/pickup-code` on a paid reservation | a **new** code; the old one is now refused at the kiosk |
 | `DELETE /api/v1/reservations/{id}` on a held or paid reservation | 204; it becomes `cancelled`, the unit is back, and a paid order is `voided` |
 | Any `/api/v1/admin/...` endpoint as the customer | 403 |
@@ -147,7 +147,7 @@ Open http://localhost:3000.
 2. **Overview.** Sign in as the operator.
    **You should see:**
    - KPI tiles: reservations, pickup rate, expired holds, hold-to-pickup time, stock-outs, machines online and uptime;
-   - a map of Bucharest with six coloured markers;
+   - a map of Cluj-Napoca with six coloured markers;
    - the machine list;
    - a green **Live** indicator at the bottom left.
 3. **A machine.** Click a machine in the list.
@@ -169,7 +169,7 @@ Open http://localhost:3000.
 
 ## 5. The machine screens (kiosks)
 
-Open http://localhost:8080 and pick a machine, or go straight to http://localhost:8080/kiosk/CP-BUC-0001.
+Open http://localhost:8080 and pick a machine, or go straight to http://localhost:8080/kiosk/CP-CLJ-0001.
 
 **You should see:** "Online" at the top right, a keypad on the left, and the slots with their counts on the right.
 
@@ -212,8 +212,8 @@ Open http://localhost:8080 and pick a machine, or go straight to http://localhos
 | Do | You should see |
 |---|---|
 | Sign in as the customer (or **New here? Create an account**; passwords need 12+ characters) | the **Nearby** screen |
-| Allow location (or refuse it) | a map with pins and a list sorted by distance. If you refuse, or you're far from Bucharest, there's a banner and the Bucharest demo area |
-| Tap **Universitate** | its products, prices, "N left", low-stock and sold-out labels |
+| Allow location (or refuse it) | a map with pins and a list sorted by distance. If you refuse, or you're far from Cluj-Napoca, there's a banner and the Cluj-Napoca demo area |
+| Tap **Centru - Piata Unirii** | its products, prices, "N left", low-stock and sold-out labels |
 | Tap **Reserve** on a product | "Your reservation", "Held for you" and a countdown |
 | Tap **Demo: try a declined card** | "Your card was declined"; still payable |
 | Tap **Pay** | a QR code and a 6-digit code, with "Pick up within" and the countdown |

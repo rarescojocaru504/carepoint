@@ -25,9 +25,9 @@ PASSWORDS = {
     UserRole.CUSTOMER: "customer-password-for-tests",
 }
 
-# Generous box around Bucharest; catches swapped lat/lng.
-BUCHAREST_LAT = (44.33, 44.55)
-BUCHAREST_LNG = (25.95, 26.25)
+# Generous box around Cluj-Napoca; catches swapped lat/lng.
+CLUJ_LAT = (46.70, 46.82)
+CLUJ_LNG = (23.50, 23.70)
 
 
 async def _counts(session: AsyncSession) -> dict[str, int]:
@@ -113,7 +113,7 @@ async def test_seed_users_roles_and_hashed_passwords(db_session: AsyncSession) -
         assert not verify_password(user.password_hash, "wrong-password")
 
 
-async def test_seed_machines_are_located_in_bucharest(db_session: AsyncSession) -> None:
+async def test_seed_machines_are_located_in_cluj_napoca(db_session: AsyncSession) -> None:
     await seed_demo_data(db_session, PASSWORDS)
     rows = (
         await db_session.execute(
@@ -127,8 +127,8 @@ async def test_seed_machines_are_located_in_bucharest(db_session: AsyncSession) 
     ).all()
     assert len(rows) == len(demo_data.MACHINES)
     for _serial, _status, lat, lng in rows:
-        assert BUCHAREST_LAT[0] < lat < BUCHAREST_LAT[1]
-        assert BUCHAREST_LNG[0] < lng < BUCHAREST_LNG[1]
+        assert CLUJ_LAT[0] < lat < CLUJ_LAT[1]
+        assert CLUJ_LNG[0] < lng < CLUJ_LNG[1]
     # The demo includes a machine under maintenance, for dashboard/app states.
     assert MachineStatus.MAINTENANCE in {row.status for row in rows}
 

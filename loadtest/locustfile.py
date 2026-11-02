@@ -3,7 +3,7 @@
 
 Customers mostly browse (map, machine pages, catalogue) and sometimes reserve
 and then cancel, so stock is not exhausted during the run. Reads hit the seeded
-Bucharest machines; reservations hit the load-test slots from loadtest_fixtures.
+Cluj-Napoca machines; reservations hit the load-test slots from loadtest_fixtures.
 
     LOADTEST_FIXTURES=fixtures.json locust -f loadtest/locustfile.py --headless \
         -u 200 -r 50 -t 60s --host http://localhost:8000
@@ -22,7 +22,7 @@ _FIXTURES: dict[str, Any] = json.loads(
     Path(os.environ.get("LOADTEST_FIXTURES", "fixtures.json")).read_text()
 )
 _TOKENS = itertools.cycle(_FIXTURES["tokens"])
-CAMPUS = [(44.4355, 26.1013), (44.4386, 26.0496), (44.4430, 26.0640), (44.4475, 26.0973)]
+CAMPUS = [(46.76975, 23.58973), (46.76420, 23.57633), (46.75628, 23.59329), (46.77425, 23.62105)]
 
 
 class Customer(HttpUser):

@@ -3,7 +3,7 @@
     python3 hardware_sim/scripts/pickup_smoke.py [API_URL] [KIOSK_API_URL]
 
 A customer pays through the backend API, then enters the code at simulated
-machine CP-BUC-0001's kiosk API. The dispense must complete the order, capture
+machine CP-CLJ-0001's kiosk API. The dispense must complete the order, capture
 the payment and take one unit off the app's availability.
 """
 
@@ -16,7 +16,7 @@ from typing import Any
 
 API = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8000/api/v1"
 KIOSK = sys.argv[2] if len(sys.argv) > 2 else "http://localhost:8080/api"
-MACHINE = "CP-BUC-0001"
+MACHINE = "CP-CLJ-0001"
 CUSTOMER = {"email": "customer@carepoint.demo", "password": "carepoint-customer-demo"}
 
 

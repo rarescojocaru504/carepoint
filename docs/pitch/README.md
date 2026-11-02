@@ -21,7 +21,7 @@ The video and screenshots come from `e2e/story.mjs` (ADR-030) on a fresh stack. 
    ```bash
    docker compose up --build --wait
    ```
-2. Sign in to the dashboard (http://localhost:3000) as the operator, and open a kiosk (http://localhost:8080/kiosk/CP-BUC-0001).
+2. Sign in to the dashboard (http://localhost:3000) as the operator, and open a kiosk (http://localhost:8080/kiosk/CP-CLJ-0001).
 3. Start the app on your phone in Expo Go, using the laptop's Wi-Fi address ([manual testing guide](../manual-testing-guide.md), section 6). Check that the phone shows the six machines.
 4. Watch the backup video once, so you can narrate over it if you need to.
 
@@ -45,7 +45,7 @@ The video and screenshots come from `e2e/story.mjs` (ADR-030) on a fresh stack. 
 | Minute | Show | Say |
 |---|---|---|
 | 0–1 | The dashboard **Overview** | "Six machines on campus, live. The KPI tiles show reservations, pickup rate and uptime." |
-| 1–2 | The phone: map, then **Universitate** | "From my room I can see exactly what's in stock." Reserve something. "It's now held for me; nobody else can take it." |
+| 1–2 | The phone: map, then **Centru - Piata Unirii** | "From my room I can see exactly what's in stock." Reserve something. "It's now held for me; nobody else can take it." |
 | 2–3 | **Pay** on the phone; the dashboard's **Reservations** | "Paid: authorised, not charged yet. The operator sees it instantly." |
 | 3–4 | Type the code on the kiosk | "At the machine I type my code. Only now am I charged." The phone switches to *Picked up* on its own. |
 | 4–5 | A simulated customer's hold turning **expired · voided** in the feed; then the kiosk's ⚙ **Offline** box | "If I don't come, the hold ends and I'm not charged." Tick Offline: "and if a machine goes down, everyone sees it immediately." Untick it. |

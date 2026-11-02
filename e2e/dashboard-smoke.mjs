@@ -80,10 +80,10 @@ try {
   await page.screenshot({ path: `${ARTIFACTS}dash-2-overview.png` });
 
   // 3. Restock a low slot; the dashboard and the machine both count it.
-  await page.getByTestId("machine-CP-BUC-0003").click();
+  await page.getByTestId("machine-CP-CLJ-0003").click();
   await page.getByTestId("slot-A1").click();
   const before = Number(await page.getByTestId("qty-A1").textContent());
-  const machineBefore = (await json(`${KIOSK}/api/machines/CP-BUC-0003`)).slots.find((s) => s.slot === "A1").quantity;
+  const machineBefore = (await json(`${KIOSK}/api/machines/CP-CLJ-0003`)).slots.find((s) => s.slot === "A1").quantity;
   await page.getByRole("spinbutton", { name: "Units" }).fill("2");
   await page.getByRole("button", { name: "Record" }).click();
   await page.getByText(/Recorded: now \d+\/\d+\. The machine was told\./).waitFor();
@@ -92,17 +92,17 @@ try {
   let machineAfter = machineBefore;
   for (let i = 0; i < 50 && machineAfter !== machineBefore + 2; i += 1) {
     await new Promise((resolve) => setTimeout(resolve, 100));
-    machineAfter = (await json(`${KIOSK}/api/machines/CP-BUC-0003`)).slots.find((s) => s.slot === "A1").quantity;
+    machineAfter = (await json(`${KIOSK}/api/machines/CP-CLJ-0003`)).slots.find((s) => s.slot === "A1").quantity;
   }
   check(machineAfter === machineBefore + 2, `machine counted ${machineBefore} -> ${machineAfter}`);
-  console.log(`3. restock +2 on CP-BUC-0003 A1: dashboard ${before} -> ${before + 2}, machine ${machineBefore} -> ${machineAfter}`);
+  console.log(`3. restock +2 on CP-CLJ-0003 A1: dashboard ${before} -> ${before + 2}, machine ${machineBefore} -> ${machineAfter}`);
   await page.screenshot({ path: `${ARTIFACTS}dash-3-restock.png` });
 
   // 4. A customer reserves in the app; the reservation appears live.
   await page.getByRole("link", { name: "Reservations" }).click();
   await page.getByTestId("reservations").waitFor();
   const { access_token: token } = await json(`${API}/auth/login`, { method: "POST", body: JSON.stringify(CUSTOMER) });
-  const machineId = (await json(`${KIOSK}/api/machines/CP-BUC-0003`)).machine_id;
+  const machineId = (await json(`${KIOSK}/api/machines/CP-CLJ-0003`)).machine_id;
   const slot = (await json(`${API}/machines/${machineId}`)).slots.find((s) => s.slot_code === "A1");
   const reservation = await json(`${API}/reservations`, {
     method: "POST",
@@ -133,10 +133,10 @@ try {
 
   // 6. Stop the simulator: machines go offline on the open overview.
   await page.getByRole("link", { name: "Overview" }).click();
-  await page.getByTestId("machine-CP-BUC-0001").getByText("online").waitFor();
+  await page.getByTestId("machine-CP-CLJ-0001").getByText("online").waitFor();
   compose("stop", "simulator");
-  await page.getByTestId("machine-CP-BUC-0001").getByText("offline").waitFor(LIVE);
-  // Every machine leaves "online" (CP-BUC-0006 is seeded in maintenance, shown as such).
+  await page.getByTestId("machine-CP-CLJ-0001").getByText("offline").waitFor(LIVE);
+  // Every machine leaves "online" (CP-CLJ-0006 is seeded in maintenance, shown as such).
   await page.getByTestId("machines").getByText("online", { exact: true }).first().waitFor({ state: "detached", ...LIVE });
   const offline = await page.getByTestId("machines").getByText("offline", { exact: true }).count();
   console.log(`6. simulator stopped -> no machine online, ${offline} shown offline, without a reload`);
@@ -144,7 +144,7 @@ try {
   check(offline === 5, `expected the 5 active machines offline, saw ${offline}`);
 
   compose("start", "simulator");
-  await page.getByTestId("machine-CP-BUC-0001").getByText("online").waitFor({ timeout: 60_000 });
+  await page.getByTestId("machine-CP-CLJ-0001").getByText("online").waitFor({ timeout: 60_000 });
   console.log("7. simulator started again -> back online");
   check(errors.length === 0, `page errors: ${errors.join("; ")}`);
   console.log("OK");

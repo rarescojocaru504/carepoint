@@ -203,7 +203,7 @@ jobs:
       - name: All simulated machines come online
         run: |
           for _ in $(seq 1 30); do
-            online=$(curl -fsS 'http://localhost:8000/api/v1/machines/nearby?lat=44.44&lng=26.08&radius_m=20000' \
+            online=$(curl -fsS 'http://localhost:8000/api/v1/machines/nearby?lat=46.77&lng=23.59&radius_m=20000' \
               | python3 -c 'import json, sys; print(sum(m["online"] for m in json.load(sys.stdin)))')
             echo "online: $online of 6"
             [ "$online" -eq 6 ] && exit 0

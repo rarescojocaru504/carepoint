@@ -3,10 +3,10 @@
 Two modes:
 
   # Real hardware: the device generated its key pair; register only the public key.
-  python -m app.scripts.provision_machine CP-BUC-0001 --public-key <base64url>
+  python -m app.scripts.provision_machine CP-CLJ-0001 --public-key <base64url>
 
   # Simulator / bench: generate a pair here and write the private key to a file.
-  python -m app.scripts.provision_machine CP-BUC-0001 --out keys/CP-BUC-0001.pem
+  python -m app.scripts.provision_machine CP-CLJ-0001 --out keys/CP-CLJ-0001.pem
 
 Replacing an existing key requires --rotate (the old key stops working at once).
 """
