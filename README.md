@@ -27,7 +27,7 @@ docker compose up --build --wait
 The first run takes a few minutes. It:
 1. builds the images;
 2. creates the database;
-3. seeds six demo machines around Bucharest campuses, a product catalogue and three accounts;
+3. seeds six demo machines around student areas in Cluj-Napoca, a product catalogue and three accounts;
 4. starts the machines, which come online within seconds.
 
 | Open | What you get |

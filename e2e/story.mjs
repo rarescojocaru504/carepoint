@@ -193,7 +193,7 @@ try {
   // for: right after the backend restarts (as CI does for short holds) every
   // machine is reconnecting, with backoff, and briefly reads as offline.
   const { nearby, machine, slot } = await eventually(async () => {
-    const { data: machines } = await api("GET", "/machines/nearby?lat=44.44&lng=26.08&radius_m=20000&limit=50");
+    const { data: machines } = await api("GET", "/machines/nearby?lat=46.77&lng=23.59&radius_m=20000&limit=50");
     const kiosks = await (await fetch(`${KIOSK}/api/machines`)).json();
     const simOf = new Map(kiosks.map((k) => [k.machine_id, k]));
     for (const candidate of machines) {

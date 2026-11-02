@@ -11,9 +11,9 @@ import { MapScreen } from "../MapScreen";
 import { SignInScreen } from "../SignInScreen";
 
 jest.mock("../../services/location", () => ({
-  DEMO_CENTER: { lat: 44.44, lng: 26.08 },
+  DEMO_CENTER: { lat: 46.77, lng: 23.59 },
   startPoint: jest.fn(() =>
-    Promise.resolve({ point: { lat: 44.4268, lng: 26.1025 }, source: "device" }),
+    Promise.resolve({ point: { lat: 46.7712, lng: 23.6236 }, source: "device" }),
   ),
 }));
 
@@ -107,30 +107,30 @@ describe("MapScreen", () => {
       "GET /api/v1/machines/nearby": () =>
         json(200, [
           summary(),
-          summary({ id: "m2", name: "Gara de Nord", online: false, distance_m: 3400 }),
-          summary({ id: "m3", name: "Medicina", status: "maintenance", distance_m: 4100 }),
+          summary({ id: "m2", name: "Hasdeu - Complex studentesc", online: false, distance_m: 3400 }),
+          summary({ id: "m3", name: "Parcul Central", status: "maintenance", distance_m: 4100 }),
         ]),
     });
     const { props, navigate } = mapProps();
     await render(<MapScreen {...props} />);
 
-    expect(await screen.findByText("Universitate - Piata Universitatii")).toBeTruthy();
+    expect(await screen.findByText("Centru - Piata Unirii")).toBeTruthy();
     expect(screen.getByText("Open")).toBeTruthy();
     expect(screen.getByText("Offline")).toBeTruthy();
     expect(screen.getByText("Maintenance")).toBeTruthy();
-    expect(screen.getByTestId("marker:Gara de Nord")).toBeTruthy();
+    expect(screen.getByTestId("marker:Hasdeu - Complex studentesc")).toBeTruthy();
 
-    await fireEvent.press(screen.getByText("Gara de Nord"));
-    expect(navigate).toHaveBeenCalledWith("Machine", { machineId: "m2", name: "Gara de Nord" });
+    await fireEvent.press(screen.getByText("Hasdeu - Complex studentesc"));
+    expect(navigate).toHaveBeenCalledWith("Machine", { machineId: "m2", name: "Hasdeu - Complex studentesc" });
   });
 
   it("offers the demo area when nothing is near the phone", async () => {
     const { seen } = installFakeServer({ "GET /api/v1/machines/nearby": () => json(200, []) });
     await render(<MapScreen {...mapProps().props} />);
 
-    await fireEvent.press(await screen.findByText("Show the Bucharest demo area"));
+    await fireEvent.press(await screen.findByText("Show the Cluj-Napoca demo area"));
 
-    expect(await screen.findByText(/Showing the Bucharest demo area/)).toBeTruthy();
+    expect(await screen.findByText(/Showing the Cluj-Napoca demo area/)).toBeTruthy();
     expect(useMachines.getState().center).toEqual(DEMO_CENTER);
     expect(seen.filter((s) => s.path === "/api/v1/machines/nearby")).toHaveLength(2);
   });

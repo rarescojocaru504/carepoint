@@ -10,7 +10,7 @@ This is the contract between the CarePoint backend and a vending machine. Anythi
 GET /api/v1/ws/machines
 Upgrade: websocket
 Sec-WebSocket-Protocol: carepoint.v1
-X-CarePoint-Machine:   CP-BUC-0001
+X-CarePoint-Machine:   CP-CLJ-0001
 X-CarePoint-Timestamp: 1767225600
 X-CarePoint-Nonce:     <22-64 base64url chars, fresh for every connection>
 X-CarePoint-Signature: <Ed25519 signature, unpadded base64url>
@@ -28,7 +28,7 @@ X-CarePoint-Signature: <Ed25519 signature, unpadded base64url>
   CAREPOINT-ED25519-V1
   GET
   /api/v1/ws/machines
-  CP-BUC-0001
+  CP-CLJ-0001
   1767225600
   <nonce>
   e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
@@ -70,7 +70,7 @@ The server never says which check failed; the reason is written to its log.
 This is sent once, straight after the handshake.
 
 ```json
-{"type": "welcome", "protocol": 1, "machine_id": "6f1c…", "serial_number": "CP-BUC-0001",
+{"type": "welcome", "protocol": 1, "machine_id": "6f1c…", "serial_number": "CP-CLJ-0001",
  "server_time": "2026-10-29T09:30:00.123456Z", "heartbeat_interval_seconds": 30,
  "slots": [{"slot": "A1", "product_sku": "PAD-REG-10", "product_name": "Sanitary pads (10)",
             "capacity": 10, "quantity": 8},

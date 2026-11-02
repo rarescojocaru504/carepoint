@@ -86,7 +86,7 @@
 
 - Run it with `python -m app.scripts.seed`, or `docker compose exec backend python -m app.scripts.seed`.
 - **What it creates:**
-  - 6 machines around university campuses in Bucharest, one of them in `maintenance`, with 8 slots each;
+  - 6 machines around university campuses (in Bucharest at first; in Cluj-Napoca since ADR-033), one of them in `maintenance`, with 8 slots each;
   - 12 products in `RON`, with the currency taken from the `CURRENCY` setting;
   - an admin, an operator and a customer account.
 - **Where the data lives:** `app/services/demo_data.py`. Edit `MACHINES` to demo somewhere else.
@@ -138,7 +138,7 @@ Builds on ADR-007: each machine holds an Ed25519 private key, and the server sto
 
 | Header | Value |
 |---|---|
-| `X-CarePoint-Machine` | the serial number, for example `CP-BUC-0001` |
+| `X-CarePoint-Machine` | the serial number, for example `CP-CLJ-0001` |
 | `X-CarePoint-Timestamp` | Unix time in whole seconds |
 | `X-CarePoint-Nonce` | 22–64 base64url characters (at least 128 random bits), never reused |
 | `X-CarePoint-Signature` | unpadded base64url of the 64-byte Ed25519 signature |
@@ -570,7 +570,7 @@ What the rules mean in practice:
 - **`offline`:** the machine disconnects and stays away until cleared.
 - **`jam`:** `next` or `always`; nothing comes out, and the machine reports a `failed` result plus an `error_event`.
 - **`partial_next`:** the next multi-unit dispense stops after one unit.
-- **`seconds_per_unit`:** a slow dispense (the demo's CP-BUC-0005 is deliberately slow).
+- **`seconds_per_unit`:** a slow dispense (the demo's CP-CLJ-0005 is deliberately slow).
 - **`drop_next_result`:** dispense, then lose the connection before reporting. This demonstrates the resend-and-outbox path live.
 
 **The local kiosk API** (`:8080`) is what the touchscreen talks to: snapshot, server-sent events, `verify`, faults and restock.
@@ -770,10 +770,10 @@ data: {"topic": "stock", "machine_id": "…", "change": "restock", "at": "2026-1
 **Done-when test.** `e2e/dashboard-smoke.mjs` runs Playwright in Chromium against the Compose stack, in CI's Docker job:
 1. A **customer** account gets "No access".
 2. The **operator** sees all 6 machines, none offline, and the live indicator on.
-3. A **restock** of +2 on CP-BUC-0003 A1 through the form updates the dashboard (2 → 4) **and the machine's own count** (2 → 4, via `adjust_stock`), and appears in the history under the operator's email.
+3. A **restock** of +2 on CP-CLJ-0003 A1 through the form updates the dashboard (2 → 4) **and the machine's own count** (2 → 4, via `adjust_stock`), and appears in the history under the operator's email.
 4. A reservation made by a customer through the API **appears in the live feed**.
 5. A product is added, deactivated and deleted.
-6. **`docker compose stop simulator`** turns every machine on the open overview from online to offline, without a reload (CP-BUC-0006 shows "maintenance", as seeded).
+6. **`docker compose stop simulator`** turns every machine on the open overview from online to offline, without a reload (CP-CLJ-0006 shows "maintenance", as seeded).
 7. Starting the simulator again brings them back online.
 
 The test also fails on any uncaught page error. That check caught a Leaflet teardown bug (the map removed mid-animation), now fixed. Screenshots of each step are uploaded as a CI artifact. A `Dashboard (TypeScript)` CI job runs the strict type check and the production build.
@@ -817,8 +817,8 @@ The whole schema is exported, operator routes included. It is already public at 
 
 **Where to search from** (`src/services/location.ts`):
 - The phone's position if the customer allows location access (`expo-location`, foreground only, last known position first so the map appears quickly).
-- Otherwise, or if location services fail, the **Bucharest demo area** (44.44, 26.08), with a banner saying so.
-- If the phone is somewhere with no machines within 20 km, for example a presenter outside Bucharest, the empty list offers **"Show the Bucharest demo area"**.
+- Otherwise, or if location services fail, the **demo area** (Bucharest at first; Cluj-Napoca, 46.77, 23.59, since ADR-033), with a banner saying so.
+- If the phone is somewhere with no machines within 20 km, for example a presenter in another city, the empty list offers **"Show the … demo area"**.
 - The search radius is the API's maximum, 20 km, which covers the demo city.
 
 **What a machine looks like** (`src/machineState.ts`). One function decides, in this order, so the most important fact wins:
@@ -935,7 +935,7 @@ Anything else shows the server's own message.
   - the store: idempotency keys valid and distinct; the code kept in memory and never written to SecureStore; a decline leaves the reservation held with no code; a repeated checkout without a code; re-issuing; codes forgotten when a reservation ends and at sign-out; cancel then re-read; `pickup_in_progress`; lists that keep the last data on failure;
   - the screens: pay shows the QR, the code and the countdown; a decline is explained and the reservation stays payable; a code is re-issued when it's not in memory; cancel after confirmation; the countdown reaching zero turns into "expired", and "Reserve again" goes to the machine; Reserve from a slot opens the reservation; sold-out slots have no button; an offline machine's buttons are disabled; "someone just reserved the last one"; My orders shows active and past orders with their payment status.
 - **A one-off run against the Compose stack,** using the app's real stores through a Node HTTP adapter with Expo's fetch contract:
-  - the demo customer reserved a pack of pads at CP-BUC-0001 and paid, and got code 287875;
+  - the demo customer reserved a pack of pads at CP-CLJ-0001 and paid, and got code 287875;
   - the code was typed into that machine's kiosk API, and the simulated machine dispensed;
   - the app then read `dispensed`, the order showed 12.99 RON **captured**, and the code was gone from memory.
 - **Builds:** the Android and iOS bundles build.
@@ -987,7 +987,7 @@ Re-reads are debounced by 300 ms per target, so a dispense, which sends several 
 - **A one-off run against the Compose stack,** using the app's real stores and connection through a streaming Node HTTP adapter with Expo's fetch contract:
   - the stream went `connecting → live`;
   - holding a unit changed the machine screen's availability from 7 to 6 live;
-  - after the code was typed at CP-BUC-0001's kiosk, the reservation turned `dispensed` from the live notice alone, and the code left memory;
+  - after the code was typed at CP-CLJ-0001's kiosk, the reservation turned `dispensed` from the live notice alone, and the code left memory;
   - switching the simulator's "offline" fault on and off made the machine screen show offline, then online again.
 - **Builds:** the Android and iOS bundles build.
 
@@ -1167,3 +1167,23 @@ docker compose exec backend python -m app.scripts.demo --shoppers 6 --every 5 --
   - bad options are refused.
 - **Run for 90 s against the Compose stack** (`--every 3`): 14 reservations, real pickups at four machines, one cancel and four holds left to expire. The operator refilled 7 low slots. The dashboard's pickup rate moved from 53% to 60%.
 - Also run inside the backend container with its defaults.
+
+## ADR-033: The demo moves to Cluj-Napoca (2026-11-02)
+
+The pilot is planned for Cluj-Napoca, so the demo's six machines now stand at the owner's chosen student areas there instead of in Bucharest.
+
+| Serial | Name | Location (OpenStreetMap) | Role in the demo |
+|---|---|---|---|
+| CP-CLJ-0001 | Centru - Piata Unirii | Piața Unirii, 46.76975, 23.58973 | well stocked; the e2e tests' main machine |
+| CP-CLJ-0002 | Piezisa - Campus studentesc | Strada Piezișă, 46.76420, 23.57633 | full |
+| CP-CLJ-0003 | Observator - Campus UTCN | Str. Observatorului 34 (Zorilor), 46.75628, 23.59329 | starts with low stock and one sold-out slot; the dashboard test restocks it |
+| CP-CLJ-0004 | FSEGA - Iulius Mall | Str. Teodor Mihali 58-60, 46.77425, 23.62105 | normal |
+| CP-CLJ-0005 | Hasdeu - Complex studentesc | Str. Bogdan Petriceicu Hașdeu, 46.76248, 23.57609 | dispenses slowly (4 s per item) and has an empty slot |
+| CP-CLJ-0006 | Parcul Central | Parcul Central Simion Bărnuțiu, 46.76986, 23.57696 | in maintenance |
+
+- **The coordinates** come from OpenStreetMap's geocoder (Nominatim), for the square, street or building named. They are not guesses.
+- **Same roles.** Each machine keeps the role its Bucharest predecessor had, so every test and guide works as before.
+- **Serials.** They change from `CP-BUC-…` to `CP-CLJ-…`, because the dashboard and kiosk show them everywhere.
+- **The demo centre** is 46.77, 23.59, by Piața Unirii. It's the app's fallback when location is refused or nothing is within 20 km, the dashboard map's starting view, the demo script's search point, and the point the CI and e2e scripts search from. All six machines lie within 4 km of it.
+- **Existing installations.** The seed never changes rows that already exist (ADR-008), so a stack that already ran keeps its Bucharest machines and gains the Cluj ones beside them. The demo data is disposable, so reset it with `docker compose down --volumes` then `docker compose up --build --wait`, rather than adding a migration that would move or delete machines.
+- **Unchanged:** a few backend unit tests still use Bucharest coordinates as arbitrary test points for geometry and distance maths. They appear nowhere in the product.

@@ -1,5 +1,5 @@
 // Where to search from: the phone's position if the customer allows it,
-// otherwise the Bucharest demo area where the seeded machines are (ADR-025).
+// otherwise the Cluj-Napoca demo area where the seeded machines are (ADR-025, ADR-033).
 
 import * as Location from "expo-location";
 
@@ -10,7 +10,7 @@ export interface Point {
 
 export type PointSource = "device" | "demo";
 
-export const DEMO_CENTER: Point = { lat: 44.44, lng: 26.08 };
+export const DEMO_CENTER: Point = { lat: 46.77, lng: 23.59 };
 
 export async function startPoint(): Promise<{ point: Point; source: PointSource }> {
   try {

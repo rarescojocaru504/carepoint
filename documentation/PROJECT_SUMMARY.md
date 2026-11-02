@@ -29,7 +29,7 @@ Numbers like (#11) are pull requests in `rarescojocaru504/carepoint`. ADR number
   - `reservations` and `orders`.
 - **Pydantic schemas** with strict validation: coordinate bounds, positive quantities and enum statuses.
 - **The seed command** `python -m app.scripts.seed` is idempotent. It creates:
-  - 6 machines around Bucharest campuses (`CP-BUC-0001` to `0006`, with `0006` in maintenance);
+  - 6 machines around university campuses (`CP-CLJ-0001` to `0006`, with `0006` in maintenance), in Bucharest at first and in Cluj-Napoca since ADR-033;
   - 12 products;
   - starting stock written through the ledger;
   - 3 demo accounts: `admin@`, `operator@` and `customer@carepoint.demo`, with the passwords `carepoint-<role>-demo`.
@@ -169,7 +169,7 @@ held ──checkout──▶ paid ──dispense──▶ dispensed
   - **Offline:** being offline shows "can't reach CarePoint", not "signed out".
 - **Screens:**
   - sign in and register;
-  - a map and list of nearby machines, coloured open / sold out / offline / maintenance, falling back to the Bucharest demo area when location is refused;
+  - a map and list of nearby machines, coloured open / sold out / offline / maintenance, falling back to the demo area when location is refused (Cluj-Napoca since ADR-033);
   - a machine's products, prices and availability.
 - **CI:** a new "Mobile (TypeScript)" job (`tsc`, ESLint, Jest, generated types current), required for auto-merge.
 

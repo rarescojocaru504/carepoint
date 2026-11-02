@@ -151,7 +151,7 @@ Settings are read from environment variables; the names are the field names in u
 | | `kpis.py` | KPI summary, computed from the tables on each request |
 | | `ops_metrics.py` | the business gauges for `GET /metrics` (machines by state, reservations by status, units available) |
 | | `events.py` | `publish()` of change notices to `cp:events` (ADR-022); `publish_reservation()` also tells the owner on `cp:user-events:<user id>`; `customer_view()` filters what customers see; the per-user stream counter (ADR-026) |
-| **Demo** | `seeding.py`, `demo_data.py` | the idempotent demo dataset: 6 Bucharest machines, 12 products, 3 accounts |
+| **Demo** | `seeding.py`, `demo_data.py` | the idempotent demo dataset: 6 machines in Cluj-Napoca (ADR-033), 12 products, 3 accounts |
 
 ### 2.5 HTTP API (all under `/api/v1` except health)
 
@@ -288,7 +288,7 @@ tests/              against a FakeGateway (tests/fake_gateway.py), 25 tests
 
 The screen for one machine is at `http://localhost:8080/kiosk/<serial>`.
 
-**Faults** (`Faults`): `offline`, `jam` (next or always), `partial_next`, `seconds_per_unit` (`CP-BUC-0005` dispenses slowly, at 4 s per unit), `drop_next_result`.
+**Faults** (`Faults`): `offline`, `jam` (next or always), `partial_next`, `seconds_per_unit` (`CP-CLJ-0005` dispenses slowly, at 4 s per unit), `drop_next_result`.
 
 **Python 3.11 lesson (#22):** don't use `asyncio.TaskGroup` for the connection session, and use `asyncio.timeout` rather than `asyncio.wait_for`. On 3.11 either one can hide a cancellation. See the comments in `machine.py`.
 
@@ -342,7 +342,7 @@ mobile/
     │   │                   with backoff, token refresh, silent-stream watchdog (ADR-028)
     │   ├── liveSync.ts     what each notice makes the stores re-read (debounced)
     │   ├── sse.ts          server-sent-events parser
-    │   ├── location.ts     phone position or the Bucharest demo centre
+    │   ├── location.ts     phone position or the Cluj-Napoca demo centre
     │   └── tokens.ts       access token in memory, refresh token in expo-secure-store
     ├── store/              Zustand: auth (restoring / unreachable / signedOut / signedIn),
     │                       machines (centre, nearby list, details; loading / ready / error),

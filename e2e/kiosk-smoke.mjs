@@ -13,7 +13,7 @@ import { chromium } from "playwright";
 
 const API = process.env.API_URL ?? "http://localhost:8000/api/v1";
 const KIOSK = process.env.KIOSK_URL ?? "http://localhost:8080";
-const SERIAL = "CP-BUC-0001";
+const SERIAL = "CP-CLJ-0001";
 const ARTIFACTS = fileURLToPath(new URL("./artifacts/", import.meta.url));
 
 async function api(method, path, body, token) {

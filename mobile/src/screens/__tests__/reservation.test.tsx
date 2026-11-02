@@ -64,7 +64,7 @@ describe("ReservationScreen", () => {
 
     expect(await screen.findByText("Held for you")).toBeTruthy();
     expect(screen.getByText(/^1[45]:\d\d$/)).toBeTruthy();
-    expect(await screen.findByText("Universitate - Piata Universitatii")).toBeTruthy();
+    expect(await screen.findByText("Centru - Piata Unirii")).toBeTruthy();
 
     await fireEvent.press(screen.getByText("Pay 14.50 RON"));
 
@@ -153,7 +153,7 @@ describe("ReservationScreen", () => {
     await fireEvent.press(screen.getByText("Reserve again"));
     expect(navigate).toHaveBeenCalledWith("Machine", {
       machineId: MACHINE_ID,
-      name: "Universitate - Piata Universitatii",
+      name: "Centru - Piata Unirii",
     });
   });
 });

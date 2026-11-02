@@ -6,11 +6,11 @@
   "http_port": 8080,
   "kiosk_dir": "/app/kiosk",
   "machines": [
-    {"serial": "CP-BUC-0001"},
-    {"serial": "CP-BUC-0002"},
-    {"serial": "CP-BUC-0003"},
-    {"serial": "CP-BUC-0004"},
-    {"serial": "CP-BUC-0005", "faults": {"seconds_per_unit": 4}},
-    {"serial": "CP-BUC-0006"}
+    {"serial": "CP-CLJ-0001"},
+    {"serial": "CP-CLJ-0002"},
+    {"serial": "CP-CLJ-0003"},
+    {"serial": "CP-CLJ-0004"},
+    {"serial": "CP-CLJ-0005", "faults": {"seconds_per_unit": 4}},
+    {"serial": "CP-CLJ-0006"}
   ]
 }

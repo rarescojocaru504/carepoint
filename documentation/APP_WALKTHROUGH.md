@@ -50,7 +50,7 @@ You don't need to read code to follow it. The file paths are there for when some
 **The customer sees:** a map with pins and, below it, the machines sorted by distance. Each one shows its distance, how many items it has, and whether it's open, sold out, offline or in maintenance.
 
 **Behind the scenes:**
-- **Where to look from.** The app asks for the phone's location; if refused, or if nothing is within 20 km, it uses the Bucharest demo area.
+- **Where to look from.** The app asks for the phone's location; if refused, or if nothing is within 20 km, it uses the Cluj-Napoca demo area.
 - **Nearest first.** The server finds the machines near that point with a geographic query (PostGIS) and sorts them by distance.
 - **What "available" means.** It counts available units as *what's physically in the machine minus what other people are holding right now*. A unit someone reserved a minute ago isn't offered to anyone else.
 

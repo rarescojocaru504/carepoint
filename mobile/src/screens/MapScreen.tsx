@@ -85,7 +85,7 @@ export function MapScreen({ navigation }: ScreenProps<"Map">) {
             {nearby.status === "error" && <Banner tone="error">{nearby.error}</Banner>}
             {source === "demo" && (
               <Banner tone="info">
-                Showing the Bucharest demo area. Allow location access to see machines near you.
+                Showing the Cluj-Napoca demo area. Allow location access to see machines near you.
               </Banner>
             )}
           </View>
@@ -98,7 +98,7 @@ export function MapScreen({ navigation }: ScreenProps<"Map">) {
               </Text>
               {source === "device" && (
                 <Button
-                  title="Show the Bucharest demo area"
+                  title="Show the Cluj-Napoca demo area"
                   variant="secondary"
                   onPress={() => void loadNearby(DEMO_CENTER, "demo")}
                 />

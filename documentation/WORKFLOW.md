@@ -45,7 +45,7 @@ On first start this:
 |---|---|
 | http://localhost:8000/docs | Swagger UI for the whole API |
 | http://localhost:3000 | Operator dashboard |
-| http://localhost:8080 | Kiosk list; `/kiosk/CP-BUC-0001` is one machine's screen |
+| http://localhost:8080 | Kiosk list; `/kiosk/CP-CLJ-0001` is one machine's screen |
 
 **Demo accounts:**
 
@@ -87,7 +87,7 @@ docker compose down --volumes
 
 **A pickup by hand, in about a minute:**
 1. In Swagger, log in as the customer (`POST /auth/login`), then use **Authorize** with the access token.
-2. Call `GET /machines/nearby?lat=44.44&lng=26.08&radius_m=20000` and pick a machine.
+2. Call `GET /machines/nearby?lat=46.77&lng=23.59&radius_m=20000` and pick a machine.
 3. Call `GET /machines/{id}` and pick a `slot_id` with stock.
 4. Call `POST /reservations` with `{"slot_id": "<slot_id>"}`, then `POST /reservations/{id}/checkout` with `{"payment_method": "pm_card_ok"}`. Note `pickup.code`.
 5. Open that machine's kiosk and type the code. The item dispenses, and the dashboard updates live.
@@ -347,7 +347,7 @@ Every job above is in `automerge.needs`; a new job must be added there in the sa
 
 ## 7. Debugging tips
 
-- **A machine is "offline" on the dashboard.** Check `docker compose logs simulator`. A machine counts as online only if it was seen within 90 s **and** hasn't disconnected since. `CP-BUC-0006` is in *maintenance* on purpose.
+- **A machine is "offline" on the dashboard.** Check `docker compose logs simulator`. A machine counts as online only if it was seen within 90 s **and** hasn't disconnected since. `CP-CLJ-0006` is in *maintenance* on purpose.
 - **"insufficient_stock" when stock looks free.** Other people's active holds count against availability. Check `GET /admin/reservations?status=active`.
 - **The code is refused at the kiosk.** A code works only at the machine it was issued for, and only while the reservation is `paid` and unexpired. After 20 wrong codes per minute, the machine is locked briefly.
 - **Redis and Postgres seem out of sync.** Reconciliation runs at startup and every 5 minutes. Restarting the backend forces a pass.
