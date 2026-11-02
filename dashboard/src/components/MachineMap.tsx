@@ -27,7 +27,8 @@ export function MachineMap({
   useEffect(() => {
     if (element.current === null) return undefined;
     const instance = L.map(element.current, { scrollWheelZoom: false }).setView(BUCHAREST, 12);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    // The single host OpenStreetMap asks clients to use (no a/b/c subdomains).
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
       attribution: "© OpenStreetMap contributors",
     }).addTo(instance);

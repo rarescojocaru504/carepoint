@@ -47,6 +47,16 @@ const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 const errors = [];
 page.on("pageerror", (error) => errors.push(error.message));
+// Map tiles: OpenStreetMap blocks tile requests without a Referer (an
+// "Access blocked" image instead of the map), so the browser must send one.
+// This checks what the browser sends, not OSM's answer, so CI doesn't depend on OSM.
+const tileReferers = [];
+page.on("request", (request) => {
+  if (request.url().includes("tile.openstreetmap.org")) tileReferers.push(request.headers()["referer"] ?? null);
+});
+page.on("console", (message) => {
+  if (/Content Security Policy/i.test(message.text())) errors.push(`CSP: ${message.text()}`);
+});
 
 try {
   // 1. A customer account gets no dashboard.
@@ -64,7 +74,9 @@ try {
   const total = await rows.count();
   check(total === 6, `expected 6 machines, saw ${total}`);
   await page.getByTestId("machines").getByText("offline", { exact: true }).first().waitFor({ state: "detached" });
-  console.log(`2. operator overview: ${total} machines, none offline; live notices connected`);
+  check(tileReferers.length > 0, "the map requested no tiles");
+  check(tileReferers.every((referer) => referer?.startsWith("http")), `map tiles sent without a Referer: ${tileReferers}`);
+  console.log(`2. operator overview: ${total} machines, none offline; live notices connected; ${tileReferers.length} map tiles requested with a Referer`);
   await page.screenshot({ path: `${ARTIFACTS}dash-2-overview.png` });
 
   // 3. Restock a low slot; the dashboard and the machine both count it.
